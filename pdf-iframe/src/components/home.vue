@@ -114,7 +114,7 @@
             </div>
 
             <div ref="last_blank"
-              style="min-height: 0; color: transparent; background-color: transparent; flex-shrink: 0;">占位标识</div>
+              style="min-height: 0; color: transparent; background-color: transparent; flex-shrink: 0;"></div>
           </div>
 
           <!-- 精灵图片 -->
