@@ -1,0 +1,29 @@
+# 忽略 pdf-backen 编译产物和缓存
+pdf-backen/save/
+pdf-backen/dist/
+pdf-backen/build/
+
+# Python 编译缓存
+__pycache__/
+*.pyc
+*.pyo
+
+# Node.js
+node_modules/
+dist/
+.vite/
+
+# 编辑器
+.vscode/
+.idea/
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 日志
+*.log
+
+# 环境变量
+.env
+.env.local
