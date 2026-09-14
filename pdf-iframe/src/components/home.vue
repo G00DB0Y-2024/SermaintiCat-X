@@ -255,6 +255,7 @@ export default{
       apiKey: "", // 替换为你的 AiHubMix API 密钥
       apiUrl: "",
       addedPrompt:"",
+      deepseekThinking:false, // DeepSeek 思考模式开关，默认关闭（false=disabled, true=enabled）
 
       pdf_fp:"", //pdf指纹，用于访问AI的储存
 
@@ -1284,6 +1285,14 @@ export default{
         return
       }
 
+      // DeepSeek API 端点适配
+      let requestUrl = this.apiUrl;
+      let isDeepSeek = this.apiUrl.includes('deepseek.com');
+      if (isDeepSeek) {
+        // DeepSeek 需要 /chat/completions 后缀
+        requestUrl = this.apiUrl.replace(/\/$/, '') + '/chat/completions';
+      }
+
       //启动流程
       this.waiting = true
       this.cancelTokenSource?this.cancelTokenSource.cancel('请求被用户取消'):null //强制停止请求
@@ -1293,22 +1302,32 @@ export default{
       // 根据是否视觉模式选择对应模型
       const currentModel = vision_model ? this.gptModelVision : this.askModel;
 
-      this.$axios.post(this.apiUrl, {
+      // 构建请求体
+      const requestBody = {
         model: currentModel,
         messages: [
           {
-            role:"developer",
+            role: "system",
             content: "你是一名学术专家秘书，请解决用户询问, 这是一些语法规范:" + "\n\n"+RulesOfMarkdown()+"\n\n"+RulesOfLatex()+"\n\n",
           },
           {
             role:"assistant",
             content:"之前用户查看过的论文内容: " + this.memorylist.join("\n\n") + user_assisant
           },
-          vision_model 
+          vision_model
             ? { role: "user", content: user_prompt }
             : { role: "user", content: user_prompt }
         ]
-      }, 
+      };
+
+      // DeepSeek 思考模式控制
+      if (isDeepSeek) {
+        // deepseekFlash 等模型支持思考模式，通过 thinking 参数控制开关
+        // enabled: 启用思考; disabled: 关闭思考
+        requestBody.thinking = { type: this.deepseekThinking ? "enabled" : "disabled" };
+      }
+
+      this.$axios.post(requestUrl, requestBody,
       {
         headers: {
         "Authorization": `Bearer ${this.apiKey}`,
@@ -1345,12 +1364,21 @@ export default{
       this.cancelTokenSource?this.cancelTokenSource.cancel('请求被用户取消'):null //强制停止请求
       this.cancelTokenSource = this.$axios.CancelToken.source();
       this.controller = new AbortController();
-      
-      this.$axios.post(this.apiUrl, {
+
+      // DeepSeek API 端点适配
+      let requestUrl = this.apiUrl;
+      let isDeepSeek = this.apiUrl.includes('deepseek.com');
+      if (isDeepSeek) {
+        // DeepSeek 需要 /chat/completions 后缀
+        requestUrl = this.apiUrl.replace(/\/$/, '') + '/chat/completions';
+      }
+
+      // 构建请求体
+      const requestBody = {
         model: this.gptModel,
         messages: [
           {
-            role:"developer",
+            role: "system",
             content: "你是一名学术论文解释和翻译专家，直接输出总结内容，不要任何引导句(如'好的','以下是'), 请遵守这些语法规范: " + "\n\n" + RulesOfMarkdown() + "\n\n" + RulesOfLatex() + "\n\n",
           },
           {
@@ -1373,7 +1401,16 @@ export default{
 `
           }
         ]
-      }, 
+      };
+
+      // DeepSeek 思考模式控制
+      if (isDeepSeek) {
+        // deepseekFlash 等模型支持思考模式，通过 thinking 参数控制开关
+        // enabled: 启用思考; disabled: 关闭思考
+        requestBody.thinking = { type: this.deepseekThinking ? "enabled" : "disabled" };
+      }
+
+      this.$axios.post(requestUrl, requestBody,
       {
         headers: {
           "Authorization": `Bearer ${this.apiKey}`,

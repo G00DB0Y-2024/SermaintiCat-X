@@ -3,12 +3,11 @@ var pdf_fp = ''
 var loc = 0
 
 function updateModelParameters(){
-	chrome.storage.local.get(["model", "visionModel", "apiKey", "apiUrl", "prompt"]).then((result) => {
+	chrome.storage.local.get(["model", "apiKey", "apiUrl", "prompt"]).then((result) => {
     chrome.runtime.sendMessage({
       type:'SET_MODEL',
       vid:'',  //不需要vid，因为参数更新是所有组件的
       model:result.model || 'gemini-2.0-flash-lite',
-      visionModel:result.visionModel || 'gpt-4o-mini',
       apiKey:result.apiKey || '',
       apiUrl:result.apiUrl || '',
       prompt:result.prompt || '',
@@ -21,7 +20,7 @@ function updateModelParameters(){
 chrome.storage.onChanged.addListener((changes, namespace) => {
   let param_flag = false
   for (let [key, { oldValue, newValue }] of Object.entries(changes)) {
-    param_flag = (key === 'model' || key === 'visionModel' || key === 'apiKey' || key == 'apiUrl')
+    param_flag = (key === 'model' || key === 'apiKey' || key == 'apiUrl')
   }
   if(param_flag){
     updateModelParameters()
