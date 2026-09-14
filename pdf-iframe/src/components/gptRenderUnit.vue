@@ -3,7 +3,7 @@
     
     <!-- div :class="hldata?'div-header-hl':'div-header-norm'" -->
     <div :class="(headtype==='LIST_TYPE_AI'||headtype.includes('LIST_TYPE_ANNO'))?'div-header-hl':'div-header-norm'" :style="{borderLeft:`4px solid ${MapHeadBarColor}`, backgroundColor:MapHeadBarBackgroundColor}" @click="$emit('onHlClick')"  @mousedown="handleHeaderMidClick">
-      <label ref="lb_head" :style="{'color':MapHeadBarColor}" style=" font-size: 12px; font-family: 'Microsoft YaHei', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">{{ datetime }} {{ editting?'(Editing)':'' }}</label>
+      <label ref="lb_head" :style="{'color':MapHeadBarColor}" style=" font-size: 12px; font-family: 'Franklin Gothic Medium', 'Arial Narrow', Arial, sans-serif;">{{ datetime }} {{ editting?'(Editing)':'' }}</label>
       <label class="lb-close" :style="{color:MapCloseColor}" @click="$emit('onClose')" style="margin-block:-5px">×</label>
     </div>
 
@@ -489,7 +489,7 @@ export default {
   margin-left: auto; 
   margin-right:5px;  
   font-size: 16px; 
-  font-family: 'Microsoft YaHei', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-family: 'Franklin Gothic Medium', 'Arial Narrow', Arial, sans-serif;
   cursor: pointer;
   
   transition: all 0.2s ease;
@@ -509,7 +509,7 @@ export default {
   padding-inline:6px;
 
   display: flex;
-  font-family: 'Microsoft YaHei', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-family: 'Times New Roman', Times, serif;
   background-color: rgba(0, 0, 0, 0.1);
   color: rgba(0, 0, 0, 0.75);
   border-radius: 5px;
@@ -536,7 +536,7 @@ export default {
   display: flex;
   flex-flow: column;
   margin-top: 0;
-  font-family: 'Microsoft YaHei', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-family:'Lucida Sans', 'Lucida Sans Regular', 'Lucida Grande', 'Lucida Sans Unicode', Geneva, Verdana, sans-serif;
   border: 2px dashed transparent;
   border-radius: 5px;
   
