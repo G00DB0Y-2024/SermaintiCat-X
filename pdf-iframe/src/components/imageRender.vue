@@ -3,17 +3,18 @@
     <div class="img-container" @click="handleImgClick">
         <img :src="loadImg" style="height: 100%; width: 100%; object-fit: contain;"/>
     </div>
-    <input 
-    v-model="img_desc" 
+    <input
+    v-model="img_desc"
     style="
         border: none;
-        text-align: center; 
-        margin-top:2px; 
-        font-size:13px; 
-        color: rgba(0, 0, 0, 0.75); 
+        text-align: center;
+        margin-top: 4px;
+        font-size: 13px;
+        color: rgba(0, 0, 0, 0.75);
         outline: none;
         width: 100%;
-    " 
+        background: transparent;
+    "
     :placeholder="`Fig. ${img_name.split('.')[0].split('_')[1]}`"
     @change="handleNameChange"
     >
@@ -67,31 +68,30 @@ export default{
 </script>
 
 <style scoped>
+/* 嵌入气泡内的图片:无边框、无固定高度,与气泡融为一体。
+   注释输入框在图片下方,文字与气泡风格一致。 */
 .img-container{
-    border: 1px solid grey;
-    border-radius: 5px;
-    padding: 5px;
     display: block;
     width: 100%;
-    height: 100%;
+    border-radius: 5px;
+    padding: 0;
     cursor: pointer;
-
-    transition: all 0.3s ease;
+    overflow: hidden;
+    transition: box-shadow 0.2s ease;
 }
 .img-container:hover{
-    box-shadow: 2px 2px 2px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.18);
 }
 
 .main-container{
-    display:flex;
+    display: flex;
     flex-flow: column;
     align-items: center;
-    justify-content: center;
-    height:  150px;
-
-    padding-inline: 15px;
-    margin-bottom: 15px;
-
+    justify-content: flex-start;
+    /* 不再强制 150px 高度,让图片按原始比例自适应撑开,
+       避免在气泡中留下多余空白 */
+    padding-inline: 8px;
+    margin-bottom: 6px;
+    width: 100%;
 }
-
 </style>

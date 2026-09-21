@@ -104,12 +104,16 @@
           <div ref="render_container" class="gpt-render" @scroll="UpdatePointerPosition"
             @auxclick="handleMouseSideButton">
             <div v-for="(item, index) in ai_res" ref="render" :key="index"
-              style="display: block; background-color: transparent; transition: all 0.2s ease;">
+              style="display: block; background-color: transparent;">
               <gptRenderUnit style="width: 100%;" :content="item.text" :datetime="item.dt" :hldata="item.hl"
                 :headtype="item.type" :gid="index" :vid="vid" :img_name="item.img"
-                :editting="index === annotation_edit_index" :key="`${refreshKey}-${index}`" @onQuote="handleQuote"
+                :editting="index === annotation_edit_index"
+                :_thinking="index === placeholderIndex && placeholderIndex !== -1"
+                :token-count="item.token_count ?? null"
+                :key="`${refreshKey}-${index}`" @onQuote="handleQuote"
                 @onClose="handleAiChange('DEL', index, null)" @onHlClick="handleHlClick(item.hl, item.type, index)"
-                @onANNOClick="handleANNOClick(item.hl, item.type)" />
+                @onANNOClick="handleANNOClick(item.hl, item.type)"
+                @annoClick="handleANNOClick(item.hl, item.type)" />
 
             </div>
 
@@ -129,7 +133,7 @@
             -ms-user-select:none;
             user-select:none;
             pointer-events: none;
-            transition: all 0.2s ease;
+            transition: all 0.2s ease, opacity 0.3s ease, filter 0.3s ease;
           " :style="{
             opacity: `${imageShowFlag?0.25:0}`,
             filter: `blur(${lastBottomRate < 0.05? 0 : 4*lastBottomRate*lastBottomRate*100 }px)`
@@ -138,31 +142,36 @@
         </div>
 
 
-        <!-- 追问 -->
+        <!-- 追问 — 移到 .content 级别定位，固定在底部 -->
         <div ref="askMask"
-          style="display: flex; position: relative; width: 100%; height: 30px; transition: all 0.2s ease;"
-          :style="{height:askFocus?'80px':'30px', minHeight:'30px'}">
-          <textarea :style="{border: askFocus?'1.5px solid #4870AC':'1.5px solid rgba(0,0,0,0.25)'}" ref="askTextrea"
-            class="textarea-ask" @focus="askFocus=true; 
-          showOrigin=false" @blur="handleAskAreaBlur()" @keydown.ctrl.enter="handleAsk(); ConfirmAnnotation();"
-            @paste="handlePaste" v-model="askContent" placeholder="Ask me => Ctrl + Enter！"></textarea>
+          style="position: fixed; bottom: 0; left: 0; right: 0; z-index: 10; background: transparent; padding: 0 12px 12px; box-sizing: border-box; pointer-events: none;">
+          <div class="ask-area" style="pointer-events: all;">
+            <label class="lb-quote-num"
+              :style="{opacity:askQuote.length===0?'0':'1', pointerEvents:askQuote.length===0?'none':'all', borderColor:askQuote.length>1?'darkred':'#4870AC', color:askQuote.length>1?'darkred':'#4870AC'}"
+              @click="askQuote.length=0">quote +{{ askQuote.length }}</label>
+            <label class="lb-quote-num"
+              :style="{opacity:askImage.img===null?'0':'1', pointerEvents:askImage.img===null?'none':'all', borderColor:'#6812b0', color:'#6812b0'}"
+              @mouseover="can_blur=false" @mouseleave="can_blur=true"
+              @click="handleAnnoationImgDel();resetImgInfo();">image {{ askImage.size }} kB</label>
 
-          <label class="lb-quote-num"
-            :style="{opacity:askQuote.length===0?'0':'1', pointerEvents:askQuote.length===0?'none':'all', borderColor:askQuote.length>1?'darkred':'#4870AC', color:askQuote.length>1?'darkred':'#4870AC'}"
-            @click="askQuote.length=0">quote +{{ askQuote.length }}</label>
-          <label class="lb-quote-num"
-            :style="{opacity:askImage.img===null?'0':'1', pointerEvents:askImage.img===null?'none':'all', borderColor:'#6812b0', color:'#6812b0'}"
-            @mouseover="can_blur=false" @mouseleave="can_blur=true"
-            @click="handleAnnoationImgDel();resetImgInfo();">image {{ askImage.size }} kB</label>
+            <div class="ask-input-wrap"
+              :class="{ 'ask-input-wrap--focused': askFocus, 'ask-input-wrap--disabled': waiting }">
+              <textarea
+                ref="askTextrea"
+                class="ask-input"
+                v-model="askContent"
+                :placeholder="askFocus ? '' : '输入问题,Enter 发送,Shift+Enter 换行'"
+                @focus="askFocus=true; showOrigin=false"
+                @blur="handleAskAreaBlur()"
+                @keydown.enter.exact.prevent="onAskEnter"
+                @keydown.shift.enter.stop
+                @paste="handlePaste"
+              ></textarea>
+            </div>
+          </div>
         </div>
 
-        <!-- 等待中（非内容部分） -->
-        <div class="wait-outer-continer"
-          :style="{opacity:waiting||waiting_cancel?'1':'0', pointerEvents:waiting||waiting_cancel?'all':'none'}"
-          @keydown.esc="handleForceStop" @click="handleForceStop" @mouseover="waiting_mouse=true"
-          @mouseleave="waiting_mouse=false">
-          <waiting :labelText="wait_text" :labelColor="wait_color" :mouseState="waiting_mouse" />
-        </div>
+        <!-- 等待中气泡已改为 MsgUnitComponent + thinking prop,不再需要全屏遮罩 -->
       </div>
 
       <textarea ref="blurTextarea" style="position: absolute; opacity: 0; height: 0; width: 0;"></textarea>
@@ -177,58 +186,17 @@
 
 <script >
 import gptRenderUnit from './gptRenderUnit.vue'
-import waiting from './waiting.vue'
+// waiting.vue 已在第三步删除(改用 MsgUnitComponent + thinking prop)
+// import waiting from './waiting.vue'
 import { serialize, deserialize } from './range-serializer.js';
+import { chat, buildAskMessages, buildLoadMessages } from '../services/aiService.js';
 
-function RulesOfMarkdown() {
-  return `
-## 列表格式
-- 无序列表用 - + 空格，2空格缩进（不要用4空格）
-- 有序列表用 数字. + 空格，2空格缩进
-- 列表可嵌套、可混用
-
-## 代码块
-用三个反引号包裹，代码块内不使用markdown/内联格式
-
-## 引用语法 (核心规则)
-> 仅在"文段后的通俗理解/进一步解释"中使用引用，不要在正文中使用
-
-## 内联格式
-- **加粗** 强调重点
-- \`单反引号\` 表示代码/函数名
-- 变量/符号统一用 $latex$ 格式，不用反引号
-- 禁用斜体
-
-## 示例
-- Alice 初到新城市，球技不佳，与队友 Megan 踢球获胜.
-- 事后诸葛亮：认识到队友的贡献，调整优势估计.
-> 通俗理解：Alice 被队友带飞，需要调整学习信号。
-
-- 使用 **后见之明基线** 调整优势估计接近0.
-`
-
-}
-
-function RulesOfLatex() {
-  return `
-## LaTeX 公式格式
-- 内联公式：$公式$ （美元符两侧有空格）
-- 独立公式：$$ 单独一行，公式，下一行，单独一个 $$
-
-## 示例
-这是一段 $E=mc^2$ 公式的内联使用。
-
-行间公式：
-$$
-\\nabla \\cdot \\mathbf{D} = \\rho
-$$
-`
-}
+// RulesOfMarkdown / RulesOfLatex 已迁移到 services/aiService.js
 
 export default{
   components:{
     gptRenderUnit,
-    waiting,
+    // waiting 已在第三步删除
 
   },
   data(){
@@ -277,7 +245,8 @@ export default{
       can_blur:true,
       refreshKey:0,
       can_render_click:true,
-      
+      placeholderIndex: -1,  // 当前 thinking 占位消息在 ai_res 中的索引,-1 表示无
+
       childrenHeightArr:[],  //索引显示model
       classifyRateArr:[0,0,0], //显示每一种卡片百分比
       scrollTopRate:"0%",  //指针位置
@@ -293,12 +262,6 @@ export default{
     }
 
     
-  },
-  setup(){
-    return {
-      RulesOfMarkdown,
-      RulesOfLatex
-    };
   },
   mounted() {
     const container = this.$refs.render_container;
@@ -433,22 +396,24 @@ export default{
       return '0%';
     },
     setRangeHighlight(selectedRange, key) {
-      // 检查选中范围是否包含数学公式节点
-      // 查找所有包含 math 标签的 p.katex 元素
-      const mathNodes = document.querySelectorAll('p.katex:has(math)');
-      let containsMath = false;
-      
+      // 检查选中范围是否包含数学公式节点(KaTeX 行内/行间 + 原生 <math>)
+      // 注意:不要直接用 extractContents 拆掉公式 DOM,会让公式消失
+      const mathNodes = document.querySelectorAll(
+        '.katex:has(math), .katex-display:has(math), .math-display:has(math), math'
+      )
+      let containsMath = false
+
       // 检查选中范围是否与任何数学公式节点重叠
       mathNodes.forEach(node => {
         if (selectedRange.intersectsNode(node)) {
-          containsMath = true;
+          containsMath = true
         }
-      });
-      
-      // 如果包含数学公式节点，则不执行高亮
+      })
+
+      // 如果包含数学公式节点,则不执行高亮
       if (containsMath) {
-        console.log('选中范围包含数学公式，已跳过高亮');
-        return;
+        console.log('选中范围包含数学公式,已跳过高亮')
+        return
       }
 
       // 创建高亮span
@@ -578,24 +543,49 @@ export default{
     },
     UpdateWindowUI(){
       return new Promise((resolve, reject) => {
-        //控制更新UI 
+        //控制更新UI
         this.$nextTick(()=>{
-          this.UpdateChildrenHeightArr()
-          this.UpdatePointerPosition()
-
           let container = this.$refs.render_container
           this.containerRect = container.getBoundingClientRect();
+
+          this.UpdateChildrenHeightArr()
+          this.UpdatePointerPosition()
 
           let last_ai_el = container.children[this.ai_res.length-1]  //最后一个ai元素
           if(last_ai_el){
             this.$refs.last_blank.style.height = `${this.containerRect.height}px`
-          } 
-        
-          this.$nextTick(resolve)
+          }
+
+          // 等容器内所有 <img> 加载完(否则最后一条 div 高度偏小,
+          // adjustScroll 算出的 offsetTop 不准,最后一条置顶会差一截)。
+          // 2s 兜底超时,避免被某个 404 图永久卡住。
+          this.waitImagesLoaded(container, 2000).then(() => {
+            this.$nextTick(resolve)
+          })
         })
       });
 
 
+    },
+    waitImagesLoaded(container, timeout = 2000) {
+      // 收集容器里所有 <img>,等待全部 complete。
+      // 已加载的(decode 后)直接 resolve,未加载的挂 onload/onerror。
+      return new Promise(resolve => {
+        if (!container) return resolve()
+        const imgs = Array.from(container.querySelectorAll('img'))
+        if (imgs.length === 0) return resolve()
+        let pending = 0
+        const done = () => { if (pending === 0) resolve() }
+        const timer = setTimeout(done, timeout)
+        imgs.forEach(img => {
+          if (img.complete && img.naturalWidth > 0) return
+          pending++
+          const onEnd = () => { pending--; if (pending === 0) { clearTimeout(timer); resolve() } }
+          img.addEventListener('load', onEnd, { once: true })
+          img.addEventListener('error', onEnd, { once: true })
+        })
+        if (pending === 0) { clearTimeout(timer); resolve() }
+      })
     },
     UpdatePointerPosition() {
       // 控制计算
@@ -611,9 +601,20 @@ export default{
 
       let last_ai_el = container.children[this.ai_res.length - 1]; // 最后一个ai元素
       if (last_ai_el) {
-        let last_ai_el_rect = last_ai_el.getBoundingClientRect();
-        this.imageShowFlag = true;
-        this.lastBottomRate = Math.max(0, (last_ai_el_rect.bottom - this.containerRect.top) / (this.containerRect.height));
+        // 语义修正(原 bug:用 last_ai_el_rect 计算的"最后元素在容器内位置",
+        // 短消息时该值接近 0,误判为"在底部",导致未滚到底就清晰渲染):
+        // 改为"滚动条距底部的比例": 0=在底部,1=距底部 1 屏
+        // 新公式: distanceFromBottom / clientHeight
+        // clientHeight 代表一屏高度,所以 ratio=1 表示距底部刚好一屏
+        const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+        // Guard: if content fits in viewport (scrollHeight <= clientHeight), image should stay hidden
+        // because there's no meaningful "scrolled to bottom" state to trigger it
+        if (container.scrollHeight <= container.clientHeight) {
+          this.imageShowFlag = false;
+        } else {
+          this.lastBottomRate = Math.max(0, Math.min(1, distanceFromBottom / container.clientHeight));
+          this.imageShowFlag = distanceFromBottom / container.clientHeight < 0.5;
+        }
       }
 
       //更新高亮位置
@@ -632,12 +633,6 @@ export default{
         }
       });
 
-      this.$nextTick(()=>{
-        // 判断滚动是否到底
-        if (container.scrollTop + container.clientHeight >= container.scrollHeight - 2) {
-          this.lastBottomRate = 0
-        }
-      })
     },
     UpdateChildrenHeightArr(){
       this.childrenHeightArr.length = 0
@@ -883,37 +878,49 @@ export default{
       })
 
     },
-    handleAiChange(mode, index, content){
+    async handleAiChange(mode, index, content){
+      // 1) 先更新本地数组(乐观更新),保证 UI 即时响应
       if(mode==='ADD'){
         this.ai_res.push(content)
-      }
-      if(mode==='DEL'){
+      } else if(mode==='DEL'){
         this.can_render_click = false
-        if(this.ai_res[index].type.includes("LIST_TYPE_ANNO")){
-          let flag = this.ai_res[index].type.split('_').at(-1)
+        const target = this.ai_res[index]
+        if(target && target.type && target.type.includes("LIST_TYPE_ANNO")){
+          let flag = target.type.split('_').at(-1)
           chrome.runtime.sendMessage({
-            type:'DEL_ANNOATION', 
+            type:'DEL_ANNOATION',
             vid:this.vid,
             flag:flag,
           })
         }
-        if(this.ai_res[index].img){
+        if(target && target.img){
           //启动图片删除
           this.$axios.put('/reqImg', {
-            imgname: this.ai_res[index].img,
+            imgname: target.img,
             base64:"",
             mode:'DEL'
           })
         }
         this.ai_res.splice(index, 1)
-        
-      }
-      if(mode === 'SET'){
+      } else if(mode === 'SET'){
         this.ai_res[index]=content
-
       }
-      this.$axios.put('/reqSaveAI', {fp:this.pdf_fp, mode:mode, index:index, cont:content})
-      
+
+      // 2) 同步到后端;失败则回滚本地状态,并提示用户
+      try {
+        await this.$axios.put('/reqSaveAI', {fp:this.pdf_fp, mode:mode, index:index, cont:content})
+      } catch (err) {
+        console.error('[reqSaveAI] 失败,回滚本地:', err)
+        if (mode === 'ADD') {
+          this.ai_res.pop()
+        } else if (mode === 'DEL') {
+          this.ai_res.splice(index, 0, content)
+        } else if (mode === 'SET') {
+          // SET 没有"旧版本快照",只提示,不动本地
+          this.$message?.error?.('保存会话失败,刷新页面后可能丢失')
+        }
+      }
+
       let scrollToIndex;
       if (mode === 'ADD') {
         scrollToIndex = this.ai_res.length - 1;
@@ -938,9 +945,6 @@ export default{
           this.can_render_click = true
         }, 200);
       })
-
-      
-      
     },
     handelAiLoad(){
       this.$axios.post('/reqLoadAI', {fp:this.pdf_fp}).then(res=>{
@@ -1021,7 +1025,7 @@ export default{
     },
     handlePaste(e) {
       e.preventDefault();
-      
+
       // 1. 检查粘贴内容是否为图片
       const clipboardItems = e.clipboardData?.items || [];
       for (const item of clipboardItems) {
@@ -1030,28 +1034,33 @@ export default{
           return;
         }
       }
-      
+
       // 2. 获取粘贴文本
       const pastedText = e.clipboardData?.getData('text') || '';
       if (!pastedText) return;
-      
+
       // 3. 获取当前光标位置
       const textarea = e.target;
       const startPos = textarea.selectionStart;
       const endPos = textarea.selectionEnd;
-      
+
       // 4. 在光标位置插入文本
       const currentValue = textarea.value;
-      textarea.value = 
-        currentValue.substring(0, startPos) + 
-        pastedText + 
+      const newValue =
+        currentValue.substring(0, startPos) +
+        pastedText +
         currentValue.substring(endPos);
-      
-      // 5. 更新Vue数据模型（如果用v-model）
-      this.$emit('input', textarea.value); // 如果是自定义组件
-      // 或者 this.textContent = textarea.value; // 如果是直接绑定的data
-      
-      // 6. 恢复光标位置（在粘贴文本之后）
+
+      // 5. 同步更新 Vue 数据模型:
+      //    这里 home.vue 是 Vue 根实例(this.$emit 不会触发 v-model),
+      //    必须直接赋值,否则粘贴后 textarea.value 有内容,
+      //    但 askContent 还是空 → onAskEnter 里
+      //    `!this.askContent.trim()` 直接 return,导致按 Enter 不发送,
+      //    只有用户再敲一个字触发 input 事件同步一次才恢复正常。
+      textarea.value = newValue;
+      this.askContent = newValue;
+
+      // 6. 恢复光标位置(在粘贴文本之后)
       this.$nextTick(() => {
         textarea.selectionStart = textarea.selectionEnd = startPos + pastedText.length;
       });
@@ -1157,7 +1166,7 @@ export default{
 
     },
     addMemoryList(text){
-      const mem_len = 10  //记忆长度
+      const mem_len = 20  //记忆长度
       if(this.memorylist.length < mem_len){
         if(!this.memorylist.includes(text)){
           this.memorylist.push(text)
@@ -1211,12 +1220,27 @@ export default{
             };
         }
     },
+    onAskEnter(){
+      // Enter 发送逻辑:
+      // 1. 注释模式 / 编辑模式下,需要同时 handleAsk + ConfirmAnnotation
+      // 2. 普通追问模式下,直接 handleAsk
+      if(this.annotation_mode || this.annotation_edit_index !== -1){
+        this.handleAsk()
+        this.ConfirmAnnotation()
+        return
+      }
+      this.handleAsk()
+    },
+    onAskShiftEnter(){
+      // Shift+Enter 插入换行 —— 浏览器默认行为已经插入了 \n
+      // 这里作为锚点 method 存在,方便后续扩展(例如自动调整高度)
+    },
     handleAsk(){
       if(this.annotation_mode)
         return
       if(this.annotation_edit_index!==-1)
         return
-      
+
       if(this.askContent.toLowerCase().includes("@clea")){
         const isConfirmed = confirm(`你确定要删除这 ${this.ai_res.length} 条记录吗？`);
         if (isConfirmed) {
@@ -1237,208 +1261,169 @@ export default{
             vid: this.vid,
           })
         }
-        
+
         // 焦点失去
         this.handleAskAreaBlur(true)
 
         return
       }
 
-      let user_action = ""
-      let user_prompt = '';
-      let user_assisant = ''
-      let vision_model = false
+      // 取消空内容请求(非视觉模式才检查,视觉模式有图片)
+      if (!this.askImage.img && !this.askContent.trim()) return
 
-      if(this.askImage.img !== null){
-        //视觉提问
-        user_prompt =  [
-          { type: "text", text: '针对给定图片，结合原文'+ (this.askContent.trim()?('回答用户提问: '+this.askContent):'对图片进行解释')  },
-          {
-            type: "image_url",
-            image_url: {
-              url:this.askImage.img,
-            }
-          },
-        ]
-        vision_model = true
+      // ── 准备 cancel token ──
+      this.cancelTokenSource?.cancel('请求被用户取消')
+      this.cancelTokenSource = this.$axios.CancelToken.source()
+      this.controller = new AbortController()
+
+      // ── 判断是否视觉模式 ──
+      const isVision = this.askImage.img !== null
+
+      // ── 选择模型 ──
+      const currentModel = isVision ? this.gptModelVision : this.askModel
+
+      // ── 构建 messages ──
+      const messages = buildAskMessages({
+        askContent: this.askContent,
+        memorylist: this.memorylist,
+        quotes: this.askQuote,
+        quoteContent: this.getQuoteContent(),
+        imageBase64: isVision ? this.askImage.img : null,
+        visionModel: isVision,
+      })
+
+      // ── Push 用户气泡 ──
+      this.handleAiChange('ADD', -1, {
+        type: 'LIST_TYPE_ASK',
+        text: this.askContent,
+        dt: this.getFormattedDate(),
+        hl: null,
+      })
+
+      // ── Push AI 占位 ──
+      // token_count 必须在初始化时声明,后续 stream 结束时才能可靠地
+      // 通过 placeholder.token_count = usage.total_tokens 触发响应式更新。
+      const placeholder = {
+        type: 'LIST_TYPE_AI',
+        text: '',
+        dt: this.getFormattedDate(),
+        hl: this.chosen_hldata,
+        img: '',
+        token_count: null,
       }
-      else{
-        if(this.askQuote.length === 0){
-          // user_action = `针对: ${ai_last_res}`
-          user_action = '根据用户阅读过的文段'
-        }
-        else{
-          user_action = `针对用户提到的点：\n`
-          let t=1
-          this.askQuote.forEach(node=>{
-            user_action += `${t}.${node.quote_msg}\n`
-          })
-
-          user_assisant = "\n\n用户提到的解释: " + this.getQuoteContent()
-        }
-        //设定非视觉提示词
-        user_prompt = `${user_action}, 解决询问【 ${this.askContent}】`
-        
-      }
-
-      if(!vision_model && this.askContent===''){
-        return
-      }
-
-      // DeepSeek API 端点适配
-      let requestUrl = this.apiUrl;
-      let isDeepSeek = this.apiUrl.includes('deepseek.com');
-      if (isDeepSeek) {
-        // DeepSeek 需要 /chat/completions 后缀
-        requestUrl = this.apiUrl.replace(/\/$/, '') + '/chat/completions';
-      }
-
-      //启动流程
+      this.ai_res.push(placeholder)
+      this.placeholderIndex = this.ai_res.length - 1
       this.waiting = true
-      this.cancelTokenSource?this.cancelTokenSource.cancel('请求被用户取消'):null //强制停止请求
-      this.cancelTokenSource = this.$axios.CancelToken.source();
-      this.controller = new AbortController();
+      this.$nextTick(() => {
+        this.UpdateWindowUI().then(() => this.adjustScroll(this.placeholderIndex))
+      })
 
-      // 根据是否视觉模式选择对应模型
-      const currentModel = vision_model ? this.gptModelVision : this.askModel;
-
-      // 构建请求体
-      const requestBody = {
+      // ── 发送请求 ──
+      chat({
+        axios: this.$axios,
+        apiUrl: this.apiUrl,
+        apiKey: this.apiKey,
         model: currentModel,
-        messages: [
-          {
-            role: "system",
-            content: "你是一名学术专家秘书，请解决用户询问, 这是一些语法规范:" + "\n\n"+RulesOfMarkdown()+"\n\n"+RulesOfLatex()+"\n\n",
-          },
-          {
-            role:"assistant",
-            content:"之前用户查看过的论文内容: " + this.memorylist.join("\n\n") + user_assisant
-          },
-          vision_model
-            ? { role: "user", content: user_prompt }
-            : { role: "user", content: user_prompt }
-        ]
-      };
-
-      // DeepSeek 思考模式控制
-      if (isDeepSeek) {
-        // deepseekFlash 等模型支持思考模式，通过 thinking 参数控制开关
-        // enabled: 启用思考; disabled: 关闭思考
-        requestBody.thinking = { type: this.deepseekThinking ? "enabled" : "disabled" };
-      }
-
-      this.$axios.post(requestUrl, requestBody,
-      {
-        headers: {
-        "Authorization": `Bearer ${this.apiKey}`,
-        'APP-Code': 'DMQU5622'
-        },
-        cancelToken: this.cancelTokenSource.token, // 绑定CancelToken
-
-      }).then(res=>{
-        const aiResponse = res.data.choices?.[0]?.message?.content || 
-                          res.data.choices?.[0]?.text || 
-                          JSON.stringify(res.data);
-
-        let final_text = this.AIoutputProcess(aiResponse)
-
-        this.handleAiChange('ADD', -1, {
-          type:'LIST_TYPE_ASK',
-          text:final_text,
-          dt:this.getFormattedDate(),
-          hl:null,
+        enableThinking: this.deepseekThinking,
+        visionModel: isVision,
+        messages,
+        cancelToken: this.cancelTokenSource.token,
+      })
+        .then(({ content, usage }) => {
+          const finalText = this.AIoutputProcess(content)
+          // 把 token_count 一并写回占位;否则气泡下方不显示 token 统计。
+          // aiService.chat() 已经返回了 usage.total_tokens,不能丢。
+          const tokenCount = usage?.total_tokens ?? null
+          this.handleAiChange('SET', this.placeholderIndex, {
+            type: 'LIST_TYPE_AI',
+            text: finalText,
+            dt: this.getFormattedDate(),
+            hl: this.chosen_hldata,
+            img: '',
+            token_count: tokenCount,
+          })
+          this.waiting = false
+          this.placeholderIndex = -1
+          window.focus()
+        })
+        .catch(err => {
+          if (this.placeholderIndex !== -1) {
+            this.ai_res.splice(this.placeholderIndex, 1)
+            this.placeholderIndex = -1
+          }
+          this.waiting = false
+          console.error('AI 请求失败:', err)
         })
 
-        this.waiting = false
-        window.focus()
-
-      })
-      
-      // 焦点失去
       this.handleAskAreaBlur(true)
-      
     },
     callAIResponse() {
       //请求控制
-      this.waiting = true
       this.cancelTokenSource?this.cancelTokenSource.cancel('请求被用户取消'):null //强制停止请求
       this.cancelTokenSource = this.$axios.CancelToken.source();
       this.controller = new AbortController();
 
-      // DeepSeek API 端点适配
-      let requestUrl = this.apiUrl;
-      let isDeepSeek = this.apiUrl.includes('deepseek.com');
-      if (isDeepSeek) {
-        // DeepSeek 需要 /chat/completions 后缀
-        requestUrl = this.apiUrl.replace(/\/$/, '') + '/chat/completions';
+      // 【第三步】先 push 占位 assistant 气泡(text 留空,_thinking 由 placeholderIndex 触发)
+      // token_count 必须在初始化时声明(stream 结束时 aiService 返回的
+      // usage.total_tokens 才会正确写入并触发响应式更新)。
+      const placeholder = {
+        type:'LIST_TYPE_AI',
+        text: '',
+        dt: this.getFormattedDate(),
+        hl: this.chosen_hldata,
+        img: '',
+        token_count: null,
       }
+      this.ai_res.push(placeholder)
+      this.placeholderIndex = this.ai_res.length - 1
+      this.waiting = true
 
-      // 构建请求体
-      const requestBody = {
-        model: this.gptModel,
-        messages: [
-          {
-            role: "system",
-            content: "你是一名学术论文解释和翻译专家，直接输出总结内容，不要任何引导句(如'好的','以下是'), 请遵守这些语法规范: " + "\n\n" + RulesOfMarkdown() + "\n\n" + RulesOfLatex() + "\n\n",
-          },
-          {
-            role:"assistant",
-            content:"之前的论文内容: " + this.memorylist.join("\n\n")
-          },
-          {
-            role: "user",
-            content: `
-请结合上下文和之前的论文内容，将学术内容【${this.chosen_text}】${this.addedPrompt === '' ? '用中文准确概括' : this.addedPrompt}，要求如下：
-- 概括内容简短、简洁明了，突出重点，合理分段或者分点，无需额外说明，不要输出其它内容
-- 文中出现对于图片(fig x/figure x/Fig x/Figure x/...)、表格(table x...)、算法(algorithm x....)的引用, 请在输出结果中请替换为“如图x所示、如表x所示、如算法x所示” (x表示具体引用数字)
-- 文中出现引用(例如[1], [2-3]这样的标记, 或是类似于Wright, 1920这样的), 请在输出结果中请表达为:[文献x](x表示引用数字), [文献Wright, 1920], 外面都要加方括号, 请不要省去文献两字"
-- 仅在确有必要时进行分条列点，避免分条过细；
-- 可以在较难或是较长的描述输出后, 利用markdown引用格式进行进一步的通俗理解或是解释
-- 对于重要的专业术语，中文翻译后markdown加粗并附全称, 例如：中文(缩写, 英文全称), 但此后再出现相同的专业术语就不要再附加全称了, 避免过长影响阅读
-- 对于公式, 请在公式后利用markdown引用格式解释公式含义或是文中提到的变量解释, 除此以外, 请不要在此块以外再重复进行公式解释了
-- 如果是伪代码或是用户要求输出的代码，要用markdown代码块(\`\`\`)格式
-- 直接输出总结内容，不要任何引导句(如"好的""以下是")
-`
-          }
-        ]
-      };
-
-      // DeepSeek 思考模式控制
-      if (isDeepSeek) {
-        // deepseekFlash 等模型支持思考模式，通过 thinking 参数控制开关
-        // enabled: 启用思考; disabled: 关闭思考
-        requestBody.thinking = { type: this.deepseekThinking ? "enabled" : "disabled" };
-      }
-
-      this.$axios.post(requestUrl, requestBody,
-      {
-        headers: {
-          "Authorization": `Bearer ${this.apiKey}`,
-          'APP-Code': 'DMQU5622'
-        },
-        cancelToken: this.cancelTokenSource.token, // 绑定CancelToken
-
-      }).then(res=>{
-        const aiResponse = res.data.choices?.[0]?.message?.content || 
-                          res.data.choices?.[0]?.text || 
-                          JSON.stringify(res.data);
-        
-        let final_text = this.AIoutputProcess(aiResponse)
-        console.log(final_text)
-
-        this.handleAiChange('ADD', -1, {
-          type:'LIST_TYPE_AI',
-          text:final_text,
-          dt:this.getFormattedDate(),
-          hl:this.chosen_hldata,
+      // 【改动 4】push 占位后立即滚动置顶(头像浮现时就开始跳转)
+      this.$nextTick(() => {
+        this.UpdateWindowUI().then(() => {
+          this.adjustScroll(this.placeholderIndex)
         })
-
-        this.waiting = false
-        this.cancelTokenSource = null; // 重置
-
-        window.focus()
-
       })
+
+      // ── 构建 messages ──
+      const messages = buildLoadMessages({
+        chosenText: this.chosen_text,
+        memorylist: this.memorylist,
+        addedPrompt: this.addedPrompt,
+      })
+
+      // ── 发送请求 ──
+      chat({
+        axios: this.$axios,
+        apiUrl: this.apiUrl,
+        apiKey: this.apiKey,
+        model: this.gptModel,
+        enableThinking: this.deepseekThinking,
+        visionModel: false,
+        messages,
+        cancelToken: this.cancelTokenSource.token,
+      })
+        .then(({ content, usage }) => {
+          const finalText = this.AIoutputProcess(content)
+          placeholder.text = finalText
+          placeholder.dt = this.getFormattedDate()
+          placeholder.hl = this.chosen_hldata
+          if (usage?.total_tokens != null) placeholder.token_count = usage.total_tokens
+          this.handleAiChange('SET', this.placeholderIndex, placeholder)
+          this.waiting = false
+          this.placeholderIndex = -1
+          this.cancelTokenSource = null
+          window.focus()
+        })
+        .catch(err => {
+          if (this.placeholderIndex !== -1) {
+            this.ai_res.splice(this.placeholderIndex, 1)
+            this.placeholderIndex = -1
+            this.waiting = false
+            this.UpdateWindowUI()
+          }
+          console.error('[AI Response] 失败:', err)
+        })
 
       // 焦点失去
       this.handleAskAreaBlur(true)
@@ -1458,23 +1443,25 @@ export default{
     adjustScroll(index=this.ai_res.length -1) {
       const container = this.$refs.render_container;
       const targetElement = container.children[index];
-      
+
       if (targetElement) {
         this.current_index = index
         const targetRect = targetElement.getBoundingClientRect();
         const offsetTop = targetRect.top - this.containerRect.top;
         this.can_current_index_change = false
-        this.smoothScrollBy(container, offsetTop, 150)
+        this.smoothScrollBy(container, offsetTop, 250, index)
         setTimeout(() => {
           this.can_current_index_change=true
-        }, 200);
+        }, 250);
       }
-      
+
     },
-    smoothScrollBy(container, offsetTop, duration = 500) {
+    smoothScrollBy(container, offsetTop, duration = 500, targetIndex = -1) {
       const start = container.scrollTop;
       const startTime = performance.now();
       const easeOutQuad = (t) => t * (2 - t);
+      let resolveFinal = null;
+      const done = new Promise(r => { resolveFinal = r });
 
       function scrollStep(timestamp) {
         const elapsed = timestamp - startTime;
@@ -1484,10 +1471,26 @@ export default{
 
         if (progress < 1) {
           requestAnimationFrame(scrollStep);
+        } else {
+          // 末帧再校准:异步资源(layout/<img>/字体)可能在动画期间
+          // 撑高了目标 div,使真实 offsetTop 变大。补一次,确保置顶精准。
+          // targetIndex: 滚动目标在 children 里的索引;默认 -1 表示
+          // "最后一条" = children.length - 2(最后是 last_blank)。
+          const idx = targetIndex >= 0 ? targetIndex : (container.children.length - 2)
+          const targetEl = container.children[idx];
+          if (targetEl) {
+            const containerRectNow = container.getBoundingClientRect();
+            const drift = targetEl.getBoundingClientRect().top - containerRectNow.top;
+            if (Math.abs(drift) > 0.5) {
+              container.scrollTop = container.scrollTop + drift;
+            }
+          }
+          resolveFinal();
         }
       }
 
       requestAnimationFrame(scrollStep);
+      return done;
     },
     highlightScroll(index) {
       const container = this.$refs.render_container;
@@ -1499,8 +1502,9 @@ export default{
       const targetElement = container.children[index];
       if (targetElement) {
         targetElement.style.scale = '1.01'
+        targetElement.style.transition = 'scale 0.2s ease'
         setTimeout(() => {
-          targetElement.style.scale = ''
+          targetElement.style.scale = '1.00'
         }, 200);
       }
     },
@@ -1631,12 +1635,15 @@ export default{
 }
 
 .gpt-render{
-  display: flex; 
-  flex-flow: column; 
-  overflow-y:scroll; 
-  overflow-x: hidden; 
+  display: flex;
+  flex-flow: column;
+  overflow-y:scroll;
+  overflow-x: hidden;
   height: 100%;
   flex: 1;  /*撑满右侧空间*/
+
+  /* 底部渐变遮罩，配合悬浮输入框 */
+  /* mask 已移除，输入框完整显示在底部 */
 
   /* WebKit浏览器滚动条样式 */
   &::-webkit-scrollbar {
@@ -1766,5 +1773,89 @@ export default{
 .lb-quote-num:hover{
   color: grey !important;
   border-color: grey !important;
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   输入框视觉对齐 (第二步)
+   - 默认 dashed 边框 + 灰底
+   - focus → solid 蓝边框 + halo + 高度增加
+   - waiting → 灰底禁用态
+   ───────────────────────────────────────────────────────────────── */
+.ask-area {
+  position: absolute;
+  bottom: 0;
+  left: 12px;
+  right: 12px;
+  width: auto;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
+.ask-input-wrap {
+  position: relative;
+  border: 1.5px dashed rgba(72, 112, 172, 0.5);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(4px);
+  padding: 5px;
+  height: 24px;
+  bottom: 5px;
+  max-height: 72px;
+  overflow: hidden;
+  transition: border-color 0.2s, background-color 0.2s,
+              box-shadow 0.2s, height 0.2s, max-height 0.2s,
+              overflow 0.2s;
+  transform-origin: bottom center;
+}
+.ask-input-wrap--focused {
+  border-color: #3b82f6;
+  border-style: solid;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+  height: 72px;
+  max-height: 200px;
+  overflow: visible;
+  padding: 5px;
+}
+.ask-input-wrap--disabled {
+  background: rgba(243, 244, 246, 0.85);
+  border-color: #e5e7eb;
+  opacity: 0.7;
+}
+.ask-input {
+  width: 100%;
+  border: 0;
+  outline: 0;
+  resize: none;
+  background: transparent;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #111827;
+  caret-color: #3b82f6;
+  display: block;
+  height: 24px;
+  max-height: 180px;
+  overflow-y: auto;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: #d1d5db transparent;
+}
+/* 聚焦时 wrap 撑高到 72px,textarea 跟着把 height 撑满 wrap,
+   否则 .ask-input 仍只有 24px,看上去"还是一行"。 */
+.ask-input-wrap--focused .ask-input {
+  height: 100%;
+  max-height: 180px;
+}
+.ask-input::-webkit-scrollbar {
+  width: 6px;
+}
+.ask-input::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 3px;
+}
+.ask-input::placeholder {
+  color: #9ca3af;
 }
 </style>

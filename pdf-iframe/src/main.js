@@ -1,7 +1,7 @@
 import { createApp } from 'vue'
 import App from './App.vue'
 import axios from 'axios'
-import './assets/main.css'
+import 'katex/dist/katex.min.css'  // KaTeX 渲染必需,Crystal 版有,PDFAI 漏了
 
 import hljs from 'highlight.js'
 import 'highlight.js/styles/atom-one-dark.css'

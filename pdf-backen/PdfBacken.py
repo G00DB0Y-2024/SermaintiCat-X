@@ -129,39 +129,59 @@ async def func(req_info:AiLoadReq):
     return []  # 返回完整的响应
 
 @app.put("/reqSaveAI")
-async def func(req_info:AiSaveReq):   
+async def func(req_info:AiSaveReq):
     # 确保save目录存在
     save_dir = os.path.join(base_dir, 'save')
     os.makedirs(save_dir, exist_ok=True)  # 如果目录不存在则创建
-    
+
     file_path = os.path.join(save_dir, f'{req_info.fp}.json')
-    
+
     try:
         # 如果文件不存在，创建一个空列表
         if not os.path.exists(file_path):
             with open(file_path, 'w', encoding='utf-8') as f:
                 json.dump([], f)
-        
+
         # 读取文件内容
         with open(file_path, 'r', encoding='utf-8') as f:
             data:list = json.load(f)
-        
+
         # 根据mode处理数据
         if req_info.mode == 'ADD':
             data.append(req_info.cont)
         elif req_info.mode == 'DEL':
-            data.pop(req_info.index)
+            # 越界保护:前端 ai_res 与后端 file 在并发/失败场景下长度可能不一致;
+            # 越界直接静默跳过(等同于删除一个不存在的元素),不再 500。
+            idx = req_info.index
+            if idx is None or idx < 0 or idx >= len(data):
+                debug(f'[reqSaveAI] DEL out-of-range idx={idx} len={len(data)} | fp={req_info.fp}')
+            else:
+                data.pop(idx)
         elif req_info.mode == 'SET':
-            data[req_info.index] = req_info.cont
+            # 越界保护:SET 越界时降级为 append,保住前端的对话内容,
+            # 后续 handelAiLoad 会按新长度重新对齐。
+            idx = req_info.index
+            if idx is None or idx < 0 or idx >= len(data):
+                debug(f'[reqSaveAI] SET out-of-range idx={idx} len={len(data)} -> append | fp={req_info.fp}')
+                data.append(req_info.cont)
+            else:
+                data[idx] = req_info.cont
+        else:
+            debug(f'[reqSaveAI] unknown mode: {req_info.mode}, fp={req_info.fp}')
+            raise ValueError(f"Unknown mode: {req_info.mode}")
 
         # 写回文件
         with open(file_path, 'w', encoding='utf-8') as f:
             json.dump(data, f)
-        
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=500, detail="Invalid JSON format in file")
+
+        debug(f'[reqSaveAI] saved ok: mode={req_info.mode} fp={req_info.fp} index={req_info.index}')
+
+    except json.JSONDecodeError as e:
+        debug(f'[reqSaveAI] JSONDecodeError: {e} | fp={req_info.fp}')
+        raise HTTPException(status_code=500, detail=f"Invalid JSON format in file: {e}")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        debug(f'[reqSaveAI] ERROR: {type(e).__name__}: {e} | fp={req_info.fp}')
+        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}")
 
 
 @app.post("/saveOps")
