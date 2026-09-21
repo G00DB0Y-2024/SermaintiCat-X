@@ -83,7 +83,7 @@
 // 单一渲染管道: markdown + LaTeX + @mention chip + mentions 列表,
 // 三件事在一次渲染中完成,互不干扰。
 // 详见 ./renderMessage.js
-import { renderMessage } from './renderMessage.js'
+import { renderMessage } from '../scripts/renderMessage.js'
 
 // ─── 公式横滚转发 (独立模块级函数,可被单元测试) ──────────────
 //
@@ -531,42 +531,9 @@ export default {
 
 <style scoped>
 /* ═══════════════════════════════════════════════════════════════
-   Mention chip (display only — same look as the editor's chip)
+   Mention chip / Markdown 列表 — 全部抽离到 src/styles/note_style.css
+   (在 main.js 里 import)。
    ═══════════════════════════════════════════════════════════════ */
-.msg-content :deep(.mention-chip) {
-  display: inline-block;
-  padding: 1px 6px;
-  margin: 0 1px;
-  border-radius: 4px;
-  background: #dbeafe;
-  color: #1d4ed8;
-  font-size: 13px;
-  font-weight: 500;
-  line-height: 1.4;
-  white-space: nowrap;
-  user-select: none;
-  -webkit-user-select: none;
-  cursor: default;
-}
-
-/* Markdown 列表(<ul>/<ol>):默认 UA 缩进 40px 在窄气泡里占太多,
-   压缩到 18px 让列表在聊天气泡内更紧凑。
-   仅作用于气泡内的直接 markdown 列表,避免污染 @mention 等其他场景。 */
-.msg-content :deep(ul),
-.msg-content :deep(ol) {
-  margin: 4px 0;
-  padding-inline-start: 18px;     /* Chrome/Edge UA 默认 40px → 18px */
-  list-style-position: outside;   /* marker 在容器外,文本左侧对齐观感更整齐 */
-}
-.msg-content :deep(li) {
-  margin: 2px 0;
-  padding-left: 2px;              /* marker 与文字间距,避免贴在一起 */
-}
-.msg-content :deep(li > ul),
-.msg-content :deep(li > ol) {
-  margin: 2px 0;                  /* 嵌套列表再缩一点 */
-  padding-inline-start: 14px;
-}
 
 /* ═══════════════════════════════════════════════════════════════
    Layout
@@ -818,161 +785,11 @@ export default {
   color: #d1d5db;
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   Content (markdown)
-   ═══════════════════════════════════════════════════════════════ */
-.msg-content {
-  font-size: 14px;
-  line-height: 1.55;
-  /* flex item 的默认 min-width:auto 会按内容撑出宽度,
-     设为 0 让气泡按父容器宽度收缩 — 否则长公式/chip 会撑出页面 */
-  min-width: 0;
-  max-width: 100%;
-  /* 给右侧一点缓冲,避免字符紧贴 padding */
-  overflow-wrap: anywhere;
-}
-/* ═══════════════════════════════════════════════════════════════
-   KaTeX — 长公式横向滚动 (仿照 PDFAI pdf-iframe/gptRenderUnit.vue)
-   ───────────────────────────────────────────────────────────────
-   KaTeX 输出的 <math display="block"> 是一个 inline-block(不是真正的
-   块级),当内容宽度超过父气泡时会让 layout 横向溢出。给 <math> 设
-   overflow-x:auto + max-width:100% 让它在自己容器内滚,不撑出页面。
-   */
-.msg-content :deep(.katex-display),
-.msg-content :deep(.math-display) {
-  /* 确保公式居中 */
-  text-align: center;
-  /* 允许横向滚动,但不默认 nowrap(否则小公式也撑满一行) */
-  overflow-x: auto;
-  overflow-y: hidden;
-  box-sizing: border-box;
-  /* 隐藏滚动条但仍可滚动 */
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-  /* KaTeX 0.16.22 内部是 table 结构,强制居中 */
-  display: block;
-  margin-block: 5px;
-}
-.msg-content :deep(.katex-display) > .katex,
-.msg-content :deep(.katex-display) > .katex-html,
-.msg-content :deep(.math-display) > .katex,
-.msg-content :deep(.math-display) > .katex-html {
-  /* 内部真正渲染元素横向居中 */
-  display: block;
-  text-align: center !important;
-  
-}
-.msg-content :deep(.katex-display)::-webkit-scrollbar,
-.msg-content :deep(.math-display)::-webkit-scrollbar {
-  display: none;
-}
-.msg-content :deep(math[display="block"]) {
-  /* MathML 标签(0.16.22 htmlAndMathml 输出) */
-  display: block;
-  text-align: center;
-  max-width: 100%;
-  overflow-x: auto;
-  overflow-y: hidden;
-  white-space: nowrap;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-}
-.msg-content :deep(math[display="block"])::-webkit-scrollbar {
-  display: none;
-}
-
-.msg-content :deep(.katex-display),
-.msg-content :deep(.math-display),
-.msg-content :deep(.katex),
-.msg-content :deep(math) {
-  cursor: pointer;
-  transition: background-color 0.15s ease, box-shadow 0.15s ease;
-  border-radius: 4px;
-}
-
-.msg-content :deep(.katex-display),
-.msg-content :deep(.math-display) {
-  display: block;
-}
-
-
-.msg-content :deep(.katex):hover {
-  background-color: rgba(99, 145, 255, 0.12);
-}
-
-.msg-content :deep(math:not([display="block"])),
-.msg-content :deep(.katex),
-.msg-content :deep(.math) {
-  display: inline-block;
-  max-width: 100%;
-  vertical-align: middle;
-  overflow-x: auto;
-  overflow-y: hidden;
-  white-space: nowrap;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-  font-size: 16px;
-}
-.msg-content :deep(math:not([display="block"]))::-webkit-scrollbar,
-.msg-content :deep(.katex)::-webkit-scrollbar,
-.msg-content :deep(.math)::-webkit-scrollbar {
-  display: none;
-}
-
-.msg-content :deep(p) { margin: 0 0 6px 0; }
-.msg-content :deep(p:last-child) { margin-bottom: 0; }
-/* 引用块(blockquote):类似 .msg-anno-quote 的形态(左侧细边条 + 浅色背景 +
-   圆角),灰色风格,文字直立(非斜体),颜色继承 .msg-content 与段落一致。
-   重写浏览器默认的 blockquote(默认 margin: 1em 40px,过宽过大),
-   收紧上下边距到与段落一致的 4px。 */
-.msg-content :deep(blockquote) {
-  display: block;
-  margin: 4px 0;
-  padding: 4px 8px;
-  background: rgba(0, 0, 0, 0.04);
-  border-left: 3px solid rgba(0, 0, 0, 0.12);
-  border-radius: 2px;
-  color: inherit;
-  font-style: normal;
-  line-height: 1.55;
-  word-break: break-word;
-  overflow-wrap: anywhere;
-  transition: background-color 0.15s ease, border-left-color 0.15s ease;
-}
-/* 引用块内部 p 不再加额外下边距,本身的 :deep(p:last-child) 已收敛 */
-.msg-content :deep(blockquote p) {
-  margin: 0;
-}
-.msg-content :deep(blockquote p:last-child) {
-  margin-bottom: 0;
-}
-/* 引用块内部允许嵌套的 blockquote 也走同一套样式,缩进一点 */
-.msg-content :deep(blockquote blockquote) {
-  margin: 4px 0 4px 8px;
-}
-.msg-content :deep(pre) {
-  background: #1f2937;
-  color: #f9fafb;
-  border-radius: 8px;
-  padding: 8px 12px;
-  font-size: 12px;
-  overflow-x: auto;
-  margin: 6px 0;
-}
-.msg-content :deep(code) {
-  background: rgba(0, 0, 0, 0.06);
-  padding: 1px 4px;
-  border-radius: 4px;
-  font-size: 12.8px;
-}
-.msg-content :deep(pre code) {
-  background: transparent;
-  padding: 0;
-}
-.msg-content :deep(a) {
-  color: #2563eb;
-  text-decoration: underline;
-}
+/* ───────────────────────────────────────────────────────────────────────
+   Content (markdown) / KaTeX — 全部抽离到 src/styles/note_style.css
+   (在 main.js 里 import,样式按 .msg-content 选择器全局生效)。
+   这里只保留布局 / 主题相关样式,不再写 markdown 渲染规则。
+   ─────────────────────────────────────────────────────────────────────── */
 
 /* ═══════════════════════════════════════════════════════════════
    Thinking 状态(第三步新增)

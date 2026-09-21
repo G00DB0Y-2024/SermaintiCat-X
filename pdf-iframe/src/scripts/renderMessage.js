@@ -25,7 +25,7 @@
 
 import MarkdownIt from 'markdown-it'
 // 与 ViewerView 复用同一套 LaTeX 处理代码 — 已生产验证
-import { extractMath, injectMath } from '../markdown/math.js'
+import { extractMath, injectMath } from './math.js'
 
 // 单例 markdown-it 配置。breaks:true 保留(LLM 输出依赖单换行变 <br>),
 // html:false 防 XSS,typographer:false 避免智能引号搞乱 LaTeX。

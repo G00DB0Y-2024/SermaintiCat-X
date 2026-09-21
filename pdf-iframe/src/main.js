@@ -6,6 +6,10 @@ import 'katex/dist/katex.min.css'  // KaTeX 渲染必需,Crystal 版有,PDFAI �
 import hljs from 'highlight.js'
 import 'highlight.js/styles/atom-one-dark.css'
 
+// 聊天气泡内 markdown + LaTeX 渲染样式(.msg-content 下所有元素)
+// 必须在 katex.min.css 之后,样式覆盖才能生效。
+import './styles/note_style.css'
+
 const app = createApp(App)
 
 app.config.globalProperties.$axios = axios;

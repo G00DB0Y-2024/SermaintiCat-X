@@ -1,0 +1,257 @@
+/* ════════════════════════════════════════════════════════════════════════════
+   note_style.css
+   ────────────────────────────────────────────────────────────────────────────
+   聊天气泡内 markdown + LaTeX 内容渲染样式。
+
+   背景:
+   · MsgUnitComponent.vue 是 <div class="msg-content"> v-html="<html>" />
+     的载体,所有 markdown 渲染产物都注入到 .msg-content 下。
+   · 之前这些样式散落在 MsgUnitComponent.vue 的 <style scoped> 里,
+     用 :deep() 穿透到 .msg-content 的后代元素。
+   · 抽到全局 CSS 后,选择器不再需要 :deep()(全局本来就能命中后代)。
+
+   约束:
+   · 全局 CSS 没有 scope 保护,选择器都带 .msg-content 前缀,
+     严格限定在聊天气泡内,避免污染 sidebar / settings 等其他模块。
+   · 不要往这里加布局样式(row / bubble / avatar 等)— 那些留在原 SFC。
+   · KaTeX 必须先于 .katex / .katex-display / math 选择器命中,
+     所以 main.js 里 katex.min.css 要在 note_style.css 之前 import。
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* ──────────── 容器基础(.msg-content 本身) ──────────── */
+.msg-content {
+  font-size: 14px;
+  line-height: 1.55;
+  /* flex item 的默认 min-width:auto 会按内容撑出宽度,
+     设为 0 让气泡按父容器宽度收缩 — 否则长公式 / chip 会撑出页面 */
+  min-width: 0;
+  max-width: 100%;
+  /* 给右侧一点缓冲,避免字符紧贴 padding */
+  overflow-wrap: anywhere;
+}
+
+/* ──────────── @mention chip ──────────── */
+.msg-content .mention-chip {
+  display: inline-block;
+  padding: 1px 6px;
+  margin: 0 1px;
+  border-radius: 4px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+}
+
+/* ──────────── 段落 ──────────── */
+.msg-content p {
+  margin: 0 0 6px 0;
+}
+.msg-content p:last-child {
+  margin-bottom: 0;
+}
+
+/* ──────────── 标题(h1 ~ h6) ────────────
+   UA 默认 h4~h6 的 margin-block: 1.33em / 1.33em,在 14px 气泡里上下
+   空白撑出 ~19px,体感太散。这里统一收紧到与段落一致的节奏,保留
+   视觉层次(字号 + 行高),不撑大版面。 */
+.msg-content h1,
+.msg-content h2,
+.msg-content h3,
+.msg-content h4,
+.msg-content h5,
+.msg-content h6 {
+  font-weight: bold;
+  line-height: 1.3;
+  margin: 8px 0 6px 0;
+}
+.msg-content h1 { font-size: 22px; }
+.msg-content h2 { font-size: 19px; }
+.msg-content h3 { font-size: 17px; line-height: 1.35; margin: 7px 0 5px 0; }
+.msg-content h4 { font-size: 16px; line-height: 1.4;  margin: 6px 0 4px 0; }
+.msg-content h5 { font-size: 15px; line-height: 1.4;  margin: 6px 0 4px 0; }
+.msg-content h6 { font-size: 14px; line-height: 1.4;  margin: 6px 0 4px 0; }
+/* 紧跟前一个块元素时的标题:把上边距合并掉,避免双倍空白 */
+.msg-content h1:first-child,
+.msg-content h2:first-child,
+.msg-content h3:first-child,
+.msg-content h4:first-child,
+.msg-content h5:first-child,
+.msg-content h6:first-child {
+  margin-top: 0;
+}
+/* 跟随标题的第一个段落:去掉段落自带的上方空白,标题已留好距离 */
+.msg-content h1 + p,
+.msg-content h2 + p,
+.msg-content h3 + p,
+.msg-content h4 + p,
+.msg-content h5 + p,
+.msg-content h6 + p {
+  margin-top: 0;
+}
+
+/* ──────────── 列表(<ul> / <ol> / <li>) ────────────
+   默认 UA 缩进 40px 在窄气泡里占太多,压缩到 18px。
+   仅作用于 .msg-content 内的 markdown 列表。 */
+.msg-content ul,
+.msg-content ol {
+  margin: 4px 0;
+  padding-inline-start: 18px;     /* Chrome / Edge UA 默认 40px → 18px */
+  list-style-position: outside;   /* marker 在容器外,文本对齐观感更整齐 */
+}
+.msg-content li {
+  margin: 2px 0;
+  padding-left: 2px;              /* marker 与文字拉开一点点 */
+}
+.msg-content li > ul,
+.msg-content li > ol {
+  margin: 2px 0;                  /* 嵌套列表再缩一点 */
+  padding-inline-start: 14px;
+}
+
+/* ──────────── 引用块(<blockquote>) ────────────
+   形态:左侧细边条 + 浅色背景 + 圆角,文字直立(非斜体)。
+   重写浏览器默认 blockquote(margin: 1em 40px),收紧到与段落一致。 */
+.msg-content blockquote {
+  display: block;
+  margin: 4px 0;
+  padding: 4px 8px;
+  background: rgba(0, 0, 0, 0.04);
+  border-left: 3px solid rgba(0, 0, 0, 0.12);
+  border-radius: 2px;
+  color: inherit;
+  font-style: normal;
+  line-height: 1.55;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  transition: background-color 0.15s ease, border-left-color 0.15s ease;
+}
+.msg-content blockquote p {
+  margin: 0;                      /* 内部 p 不再加下边距,p:last-child 已收敛 */
+}
+.msg-content blockquote p:last-child {
+  margin-bottom: 0;
+}
+.msg-content blockquote blockquote {
+  margin: 4px 0 4px 8px;           /* 嵌套引用块缩进一点 */
+}
+
+/* ──────────── 代码块 / 行内代码 ──────────── */
+.msg-content pre {
+  background: #1f2937;
+  color: #f9fafb;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  overflow-x: auto;
+  margin: 6px 0;
+}
+.msg-content code {
+  background: rgba(0, 0, 0, 0.06);
+  padding: 1px 4px;
+  border-radius: 4px;
+  font-size: 12.8px;
+}
+.msg-content pre code {
+  background: transparent;         /* 在 <pre> 里去掉行内 code 的背景 */
+  padding: 0;
+}
+
+/* ──────────── 链接(<a>) ──────────── */
+.msg-content a {
+  color: #2563eb;
+  text-decoration: underline;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   KaTeX — 长公式横向滚动(避免撑出气泡)
+   ────────────────────────────────────────────────────────────────────────────
+   KaTeX 输出的 <math display="block"> 是一个 inline-block(不是真正的
+   块级),内容宽度超过父气泡时会让 layout 横向溢出。给 <math> 设
+   overflow-x:auto + max-width:100% 让它在自己容器内滚,不撑出页面。
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* ──── 行间公式(.katex-display / .math-display) ──── */
+.msg-content .katex-display,
+.msg-content .math-display {
+  /* 确保公式居中 */
+  text-align: center;
+  /* 允许横向滚动,但不默认 nowrap(否则小公式也撑满一行) */
+  overflow-x: auto;
+  overflow-y: hidden;
+  box-sizing: border-box;
+  /* 隐藏滚动条但仍可滚动 */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  /* KaTeX 0.16.22 内部是 table 结构,强制居中 */
+  display: block;
+  margin-block: 5px;
+}
+.msg-content .katex-display > .katex,
+.msg-content .katex-display > .katex-html,
+.msg-content .math-display > .katex,
+.msg-content .math-display > .katex-html {
+  /* 内部真正渲染元素横向居中 */
+  display: block;
+  text-align: center !important;
+}
+.msg-content .katex-display::-webkit-scrollbar,
+.msg-content .math-display::-webkit-scrollbar {
+  display: none;
+}
+
+/* MathML 标签(KaTeX 0.16.22 htmlAndMathml 输出) */
+.msg-content math[display="block"] {
+  display: block;
+  text-align: center;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.msg-content math[display="block"]::-webkit-scrollbar {
+  display: none;
+}
+
+/* ──── 公式通用:hover 高亮 + 圆角 + cursor ──── */
+.msg-content .katex-display,
+.msg-content .math-display,
+.msg-content .katex,
+.msg-content math {
+  cursor: pointer;
+  transition: background-color 0.15s ease, box-shadow 0.15s ease;
+  border-radius: 4px;
+}
+.msg-content .katex-display,
+.msg-content .math-display {
+  display: block;
+}
+.msg-content .katex:hover {
+  background-color: rgba(99, 145, 255, 0.12);
+}
+
+/* ──── 行内公式(<.katex> / math 默认) ──── */
+.msg-content math:not([display="block"]),
+.msg-content .katex,
+.msg-content .math {
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: middle;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  font-size: 16px;
+}
+.msg-content math:not([display="block"])::-webkit-scrollbar,
+.msg-content .katex::-webkit-scrollbar,
+.msg-content .math::-webkit-scrollbar {
+  display: none;
+}

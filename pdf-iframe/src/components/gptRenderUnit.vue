@@ -6,9 +6,7 @@
     - 头像用 agent_reason.png(Crystal 专属)
   -->
   <div style="display: flex; flex-flow: column; transition: all 0.2s ease"
-       :style="{opacity:editting?0.5:1}"
-       @dblclick="handleDoubleClick"
-       @copy="handleCopy">
+       :style="{opacity:editting?0.5:1}">
 
     <MsgUnitComponent
       :role="resolvedRole"
@@ -35,7 +33,7 @@
 
 <script>
 // gptRenderUnit:转发器
-// 渲染管线已在第一步抽离到 renderMarkdown.js / postProcessMarkdown.js
+// 渲染管线已在 scripts/renderMessage.js(单一管道:markdown + LaTeX + @mention)
 // 本组件职责:
 //   · 路由 role / content / annoText 到 MsgUnitComponent
 //   · 处理中键引用(onQuote)、ANNO 高亮监听(chrome.runtime.onMessage)、双击复制
@@ -113,13 +111,6 @@ export default {
         }
         event.stopPropagation()
       }
-    },
-    handleCopy(e) {
-      // Ctrl+C 划词复制 —— 让 MsgUnitComponent 内的 .msg-content 处理
-      // 此处透传即可
-    },
-    handleDoubleClick(event) {
-      // 双击复制整段:已在 MsgUnitComponent 透传,这里不需要额外处理
     },
   },
   computed: {

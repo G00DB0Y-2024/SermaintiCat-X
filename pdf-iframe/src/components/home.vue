@@ -188,10 +188,10 @@
 import gptRenderUnit from './gptRenderUnit.vue'
 // waiting.vue 已在第三步删除(改用 MsgUnitComponent + thinking prop)
 // import waiting from './waiting.vue'
-import { serialize, deserialize } from './range-serializer.js';
-import { chat, buildAskMessages, buildLoadMessages } from '../services/aiService.js';
+import { serialize, deserialize } from '../scripts/range-serializer.js';
+import { chat, buildAskMessages, buildLoadMessages } from '../scripts/aiService.js';
 
-// RulesOfMarkdown / RulesOfLatex 已迁移到 services/aiService.js
+// RulesOfMarkdown / RulesOfLatex 已迁移到 scripts/aiService.js
 
 export default{
   components:{
