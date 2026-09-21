@@ -549,6 +549,25 @@ export default {
   cursor: default;
 }
 
+/* Markdown 列表(<ul>/<ol>):默认 UA 缩进 40px 在窄气泡里占太多,
+   压缩到 18px 让列表在聊天气泡内更紧凑。
+   仅作用于气泡内的直接 markdown 列表,避免污染 @mention 等其他场景。 */
+.msg-content :deep(ul),
+.msg-content :deep(ol) {
+  margin: 4px 0;
+  padding-inline-start: 18px;     /* Chrome/Edge UA 默认 40px → 18px */
+  list-style-position: outside;   /* marker 在容器外,文本左侧对齐观感更整齐 */
+}
+.msg-content :deep(li) {
+  margin: 2px 0;
+  padding-left: 2px;              /* marker 与文字间距,避免贴在一起 */
+}
+.msg-content :deep(li > ul),
+.msg-content :deep(li > ol) {
+  margin: 2px 0;                  /* 嵌套列表再缩一点 */
+  padding-inline-start: 14px;
+}
+
 /* ═══════════════════════════════════════════════════════════════
    Layout
    ═══════════════════════════════════════════════════════════════ */
@@ -862,24 +881,6 @@ export default {
   display: none;
 }
 
-/* ───────────────────────────────────────────────────────────────
-   公式交互样式:hover 高亮 + cursor pointer(左键单击复制 LaTeX)
-   ───────────────────────────────────────────────────────────────
-   简化设计:只有 .katex:hover 触发高亮,行间公式外层(.katex-display /
-   .math-display)只设 cursor,不画高亮。
-
-   行间公式 DOM:
-     <div class="math-display">              ← 后端包的最外层(某些场景)
-       <span class="katex-display">          ← KaTeX 行间容器
-         <span class="katex">                ← 真正的公式
-           <span class="katex-html">…</span>
-         </span>
-       </span>
-     </div>
-
-行内公式只有 .katex 一层。无论行内还是行间,鼠标停在 .katex 上时只有
-.katex:hover 一条规则画高亮,外层没有任何 bg/box-shadow 干扰 → 单层。
-*/
 .msg-content :deep(.katex-display),
 .msg-content :deep(.math-display),
 .msg-content :deep(.katex),
@@ -894,17 +895,11 @@ export default {
   display: block;
 }
 
-/* 唯一高亮规则:所有公式核心 .katex:hover(覆盖行内 + 行间内部)。
-   行间公式的外层 .katex-display / .math-display 没有 hover 样式,
-   鼠标停在 .katex 上时只有这一条规则画高亮 → 单层高亮,无重复。
-   仅保留淡蓝色背景作为视觉反馈,不再画外发光边框。 */
+
 .msg-content :deep(.katex):hover {
   background-color: rgba(99, 145, 255, 0.12);
 }
 
-/* 行内公式:保留 inline 行为,但当单个公式超长时也要能 horizontal scroll.
-   inline 元素 overflow 需要 display 切换 — 用 inline-block 让 max-width
-   可以生效。 */
 .msg-content :deep(math:not([display="block"])),
 .msg-content :deep(.katex),
 .msg-content :deep(.math) {
