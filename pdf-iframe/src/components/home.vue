@@ -505,6 +505,12 @@ export default{
     },
     handelSelectedHighlight(e) {
       if (e.button === 0) {
+        // 只处理来自当前 iframe 内的 mouseup,忽略跨 iframe 冒泡来的。
+        // document.contains(e.target) 对跨 iframe 事件返回 false,
+        // 因为 PDF iframe 和 Vue iframe 各是不同的 document。
+        // 这样在 PDF 区域选中文本复制时就不会触发 SET_TEXT → 绿框高亮。
+        if (!document.contains(e.target)) return
+
         const selection = window.getSelection();
         if (!selection.isCollapsed) {
           const selectedRange = selection.getRangeAt(0);

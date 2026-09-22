@@ -12,7 +12,7 @@
 -->
 <template>
   <!-- user 消息:整行右对齐,气泡占右侧,时间在气泡外下方 -->
-  <div ref="msgRow" :class="rootClass" @copy="$emit('annoClick') /* 占位,真正 copy 走 capture */">
+  <div ref="msgRow" :class="rootClass">
     <template v-if="isUser">
       <div class="msg-user-stack">
         <div class="msg-bubble msg-bubble--user msg-bubble--slide-user" :class="{ 'msg-bubble--selection': isSelection }">
@@ -412,14 +412,6 @@ function makeCopyHandler(root) {
     event.preventDefault()
     try {
       event.clipboardData.setData('text/plain', text)
-      // 同步触发一次视觉反馈(闪一下根容器)
-      const prev = root.style.outline
-      root.style.outline = '2px solid #22c55e'
-      root.style.outlineOffset = '0px'
-      setTimeout(() => {
-        root.style.outline = prev
-        root.style.outlineOffset = ''
-      }, 180)
     } catch {
       // clipboardData 不可写时静默放行
     }
