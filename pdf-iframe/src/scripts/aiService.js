@@ -175,15 +175,15 @@ function buildUserActionText(askContent, quotes, quoteContent) {
   }
   const quoteLines = quotes.map((q, i) => `${i + 1}.${q.quote_msg}`).join('\n')
   return (
-    `针对用户提到的点：\n${quoteLines}\n\n` +
-    `用户提到的解释：${quoteContent}\n\n` +
+    `针对用户引用的内容：\n${quoteLines}\n\n` +
+    `用户引用的解释：${quoteContent}\n\n` +
     `解决询问【${askContent}】`
   )
 }
 
 function buildAssistantContext(quotes, quoteContent) {
   if (quotes.length === 0) return ''
-  return '\n\n用户提到的解释：' + quoteContent
+  return '\n\n用户引用的解释：' + quoteContent
 }
 
 /**

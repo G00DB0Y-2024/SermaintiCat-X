@@ -52,7 +52,7 @@
         </div>
 
         <!-- 气泡 -->
-        <div class="msg-bubble msg-bubble--assistant msg-bubble--slide-assistant">
+        <div ref="bubbleEl" class="msg-bubble msg-bubble--assistant msg-bubble--slide-assistant">
           <span v-if="thinking" class="msg-thinking">
             <span class="msg-thinking-dot"></span>
             <span class="msg-thinking-dot"></span>
@@ -68,11 +68,24 @@
 
         <!-- 元数据行 -->
         <div class="msg-meta msg-meta--assistant">
-          <span class="msg-time">{{ timestamp }}</span>
-          <template v-if="tokenCount != null">
-            <span class="msg-sep">·</span>
-            <span class="msg-tokens">{{ tokenCount }} {{ tokenCount === 1 ? 'token' : 'tokens' }}</span>
-          </template>
+          <div class="msg-meta-left">
+            <span class="msg-time">{{ timestamp }}</span>
+            <template v-if="tokenCount != null">
+              <span class="msg-sep">·</span>
+              <span class="msg-tokens">{{ tokenCount }} {{ tokenCount === 1 ? 'token' : 'tokens' }}</span>
+            </template>
+          </div>
+          <!-- 复制 / 引用 按钮(仅在 thinking 隐藏) -->
+          <div v-if="!thinking" class="msg-meta-buttons">
+            <button class="msg-action-btn" :title="'复制整条消息(含 LaTeX)'"
+              @click="handleCopyAll" @mousedown.stop>
+              <img :src="copyIcon" alt="copy" />
+            </button>
+            <button class="msg-action-btn" :title="'引用到输入框'"
+              @click="handleQuoteThis" @mousedown.stop>
+              <img :src="quoteIcon" alt="quote" />
+            </button>
+          </div>
         </div>
       </div>
     </template>
@@ -441,8 +454,16 @@ export default {
     annoText: { type: String, default: '' },
     // 原始 headtype(用于标记高亮触发区)
     headtype: { type: String, default: '' },
+    // 消息在父组件 ai_res 数组里的索引,供引用按钮回传
+    gid: { type: Number, default: -1 },
   },
-  emits: ['annoClick'],
+  emits: ['annoClick', 'onQuote'],
+  data() {
+    return {
+      copyIcon: new URL('../assets/images/copy.png', import.meta.url).href,
+      quoteIcon: new URL('../assets/images/ref.png', import.meta.url).href,
+    }
+  },
   computed: {
     isUser() {
       return this.role === 'user'
@@ -517,6 +538,52 @@ export default {
     this._onWheel = null
     this._onClick = null
     this._onCopy = null
+  },
+  methods: {
+    /**
+     * 整条气泡复制。
+     * 用 selectNodeContents 选中气泡 DOM 范围,再走原生 execCommand('copy'):
+     *   - capture 阶段挂的 makeCopyHandler 会拦截,识别公式节点并替换为 LaTeX
+     *   - 含 KaTeX 时 clipboardData.setData 写入 LaTeX 文本;
+     *   - 无公式时默认把气泡 HTML 文本拷出(纯 markdown 渲染结果,普通复制)
+     * selectNodeContents 含 .msg-bubble-extra(图),但 contenteditable 关闭,
+     * 浏览器只会把可读文本写入剪贴板——图不会被拷贝,符合预期。
+     */
+    handleCopyAll() {
+      const bubble = this.$refs.bubbleEl
+      if (!bubble) return
+      const sel = window.getSelection()
+      if (!sel) return
+      sel.removeAllRanges()
+      const range = document.createRange()
+      range.selectNodeContents(bubble)
+      sel.addRange(range)
+      try {
+        document.execCommand('copy')
+      } catch {
+        // execCommand 失败时回退:直接从 bubble 文本拼接(无 LaTeX 替换)
+        const text = bubble.innerText
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).catch(() => {})
+        }
+      }
+      // 清掉选中区,防止 mouseup 触发 PDF 侧蓝框闪动
+      setTimeout(() => { sel.removeAllRanges() }, 0)
+    },
+
+    /**
+     * 引用整条气泡到输入框。
+     * 取气泡的纯文本(去掉图片/HTML 标签),通过 onQuote emit 上抛,
+     * home.vue 已有的 handleQuote(gid, msg, 'add') 会写入 askQuote,
+     * 输入框上方的 "quote +N" 标签会自动更新。
+     */
+    handleQuoteThis() {
+      const bubble = this.$refs.bubbleEl
+      if (!bubble) return
+      const msg = bubble.innerText.replace(/\s+\n/g, '\n').trim()
+      if (!msg) return
+      this.$emit('onQuote', this.gid, msg, 'add')
+    },
   },
 }
 </script>
@@ -765,16 +832,73 @@ export default {
 }
 
 .msg-meta--assistant {
-  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 4px;
   font-size: 11px;
   color: #9ca3af;
   margin-top: 4px;
   padding-left: 4px;
   line-height: 1.4;
+  /* 关键:撑满气泡宽度,这样按钮组才能贴右 */
+  width: 100%;
+  box-sizing: border-box;
+  justify-content: space-between;
+}
+/* 左侧:时间 + token,撑满右侧让按钮自动推到最右 */
+.msg-meta-left {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.msg-meta-buttons {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
 }
 .msg-sep {
   margin: 0 4px;
   color: #d1d5db;
+}
+
+/* 气泡右下角: 复制 / 引用 图标按钮 */
+.msg-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  margin: 0 2px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  vertical-align: middle;
+  opacity: 0;
+  transition: opacity 0.15s ease, background-color 0.15s ease,
+              border-color 0.15s ease, transform 0.15s ease;
+}
+.msg-meta--assistant:hover .msg-action-btn {
+  opacity: 1;
+}
+.msg-action-btn:hover {
+  background-color: rgba(72, 112, 172, 0.08);
+  border-color: rgba(72, 112, 172, 0.25);
+}
+.msg-action-btn:active {
+  transform: scale(0.92);
+}
+.msg-action-btn img {
+  width: 13px;
+  height: 13px;
+  display: block;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  user-select: none;
+  pointer-events: none;
+  /* 不要被选中 */
+  -webkit-user-drag: none;
 }
 
 /* ───────────────────────────────────────────────────────────────────────

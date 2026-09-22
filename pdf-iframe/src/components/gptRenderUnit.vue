@@ -19,8 +19,10 @@
       :anno-text="annoText"
       :headtype="headtype"
       :token-count="tokenCount ?? null"
+      :gid="gid"
       @dblclick.native="handleMiddleClick"
       @annoClick="$emit('annoClick')"
+      @onQuote="(gid, msg, method) => $emit('onQuote', gid, msg, method)"
     >
       <!-- 把图片搬进气泡内,左右各 15px 由 MsgUnitComponent 的
            .msg-bubble-extra 容器提供 -->
