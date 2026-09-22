@@ -55,10 +55,6 @@ class AiAskReq(BaseModel):
         default=None,
         description="图片 base64 (含 data:image/...;base64, 前缀), null 表示非视觉模式",
     )
-    load_buffer: list[dict] = Field(
-        default_factory=list,
-        description="前端累积的划词事件列表 [{ts, chosen_text, added_prompt, answer}]，Ask 时一并消费并更新 Crystal_memory.md",
-    )
 
 
 # ── /ai/load ──────────────────────────────────────────────────────────

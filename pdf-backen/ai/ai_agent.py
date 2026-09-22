@@ -7,9 +7,8 @@ LangGraph StateGraph — Crystal 论文问答核心编排。
 
 关键设计:
 - 持久化:
-    save/{fp}_ai.json         每篇论文的对话历史 [{role, content, ts}]
-    save/Crystal_memory.md    Crystal 对用户的认知沉淀(自由 Markdown, 按 agent 名字隔离)
-- memorylist(阅读过的论文片段) 不在这里, 由前端在请求时透传, 见 buildAskMessages / buildLoadMessages
+    save/{fp}_ai.json        每篇论文的对话历史 [{role, content, ts}]
+    ai/memory/Crystal_memory.md   Crystal 对用户的认知沉淀(自由 Markdown)
 - update_agent_memory 用 asyncio.create_task() 异步触发, 不阻塞响应
 """
 from __future__ import annotations
@@ -51,8 +50,8 @@ BASE_DIR = _get_base_dir()
 SAVE_DIR = os.path.join(BASE_DIR, "save")
 os.makedirs(SAVE_DIR, exist_ok=True)
 
-# Crystal_mem 文件名 — 计划要求按 agent 名字隔离, 默认 Crystal
-CRYSTAL_MEMORY_FILE = os.path.join(SAVE_DIR, "persistence", "Crystal_memory.md")
+# Crystal_mem 文件名
+CRYSTAL_MEMORY_FILE = os.path.join(BASE_DIR, "ai", "memory", "Crystal_memory.md")
 
 # Crystal_memory.md 内存缓存。
 # 避免每次 /ai/ask 或 /ai/load 都重新打开文件读磁盘。
@@ -61,14 +60,22 @@ CRYSTAL_MEMORY_FILE = os.path.join(SAVE_DIR, "persistence", "Crystal_memory.md")
 _agent_memory_cache: str | None = None
 
 
+def _ensure_memory_dir() -> None:
+    """冷启动: 确保 ai/memory/ 目录存在, 首次调用时执行一次。"""
+    mem_dir = os.path.dirname(CRYSTAL_MEMORY_FILE)
+    if not os.path.exists(mem_dir):
+        os.makedirs(mem_dir, exist_ok=True)
+
+
 def _get_agent_memory() -> str:
     """
-    读 agent_memory 缓存。首次调用时同步加载磁盘内容。
+    读 agent_memory 缓存。首次调用时同步加载磁盘内容, 必要时创建目录和空文件。
     LLM 输出通常只读这份缓存(通过 load_agent_memory_node),
     不需要每次都打开 Crystal_memory.md 文件。
     """
     global _agent_memory_cache
     if _agent_memory_cache is None:
+        _ensure_memory_dir()
         if os.path.exists(CRYSTAL_MEMORY_FILE):
             try:
                 with open(CRYSTAL_MEMORY_FILE, "r", encoding="utf-8") as f:
@@ -93,6 +100,42 @@ def _paper_history_path(pdf_fp: str) -> str:
     return os.path.join(SAVE_DIR, f"{pdf_fp}_ai.json")
 
 
+def _load_paper_history(fp: str, limit: int) -> list[dict]:
+    """
+    读 save/{fp}_ai.json, 返回最近 limit 轮的 messages (OpenAI 格式)。
+
+    - 每轮 = 1 条 user + 1 条 assistant (limit 轮 = limit*2 条 entry)
+    - 按 ts 倒序截取后 reverse 回正序 (OpenAI 要求时间正序)
+    - limit=0 或文件不存在 / 异常 → 返回 []
+    - 不影响主链路, 异常静默
+    """
+    if limit <= 0:
+        return []
+    path = _paper_history_path(fp)
+    if not os.path.exists(path):
+        return []
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, list):
+            return []
+        # data: [{role, content, ts}, ...] — 按 ts 已经正序
+        # 取最后 limit*2 条 (即最近 limit 轮), 反转为正序
+        tail = data[-(limit * 2):]
+        # 仅保留 role+content (剥掉 ts, 防止脏数据塞进 messages)
+        cleaned = []
+        for e in tail:
+            if not isinstance(e, dict):
+                continue
+            role = e.get("role")
+            content = e.get("content")
+            if role in ("user", "assistant") and isinstance(content, str):
+                cleaned.append({"role": role, "content": content})
+        return cleaned
+    except (json.JSONDecodeError, OSError):
+        return []
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # LangGraph State
 # ═══════════════════════════════════════════════════════════════════════
@@ -101,19 +144,17 @@ class PaperAIState(TypedDict):
     """
     LangGraph 工作区状态。
 
-    req:        入口请求(AiAskReq 或 AiLoadReq)
-    messages:    组装好的 OpenAI 格式 messages, 准备送给 llm_call
-    paper_messages: 从 {fp}_ai.json 加载的历史对话
-    agent_memory: 从 Crystal_memory.md 加载的 Markdown 全文(注入 system prompt)
-    memorylist:  用户阅读过的论文片段(由前端透传)
-    final_answer: llm_call 返回的最终 content
-    usage:        上游 LLM 的 usage 统计
+    req:           入口请求(AiAskReq 或 AiLoadReq)
+    messages:      组装好的 OpenAI 格式 messages, 准备送给 llm_call
+    agent_memory:  从 Crystal_memory.md 加载的 Markdown 全文(注入 system prompt)
+    paper_history: 当前 pdf_fp 最近 N 轮 paper_history (Ask 20 / Load 10)
+    final_answer:  llm_call 返回的最终 content
+    usage:         上游 LLM 的 usage 统计
     """
     req: Any  # AiAskReq | AiLoadReq
     messages: list[dict]
-    paper_messages: list[dict]
     agent_memory: str
-    memorylist: list[str]
+    paper_history: list[dict]
     final_answer: str
     usage: dict
 
@@ -214,24 +255,6 @@ async def _call_llm(
 # LangGraph 节点
 # ═══════════════════════════════════════════════════════════════════════
 
-async def load_paper_memory_node(state: PaperAIState) -> dict:
-    """读 save/{fp}_ai.json, 加载按论文隔离的对话历史(暂不直接喂给 LLM, 仅持久化时回写)"""
-    req = state["req"]
-    fp = req.pdf_fp
-    path = _paper_history_path(fp)
-    if os.path.exists(path):
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            if not isinstance(data, list):
-                data = []
-        except (json.JSONDecodeError, OSError):
-            data = []
-    else:
-        data = []
-    return {"paper_messages": data}
-
-
 async def load_agent_memory_node(state: PaperAIState) -> dict:
     """读 agent_memory 缓存(首次才打磁盘)。作为 system prompt 注入。
 
@@ -241,28 +264,43 @@ async def load_agent_memory_node(state: PaperAIState) -> dict:
     return {"agent_memory": _get_agent_memory()}
 
 
+async def load_paper_history_node(state: PaperAIState) -> dict:
+    """
+    按 req 类型决定取多少轮 paper history:
+      - Ask 模式: 20 轮 (40 条 entry)
+      - Load 模式: 10 轮 (20 条 entry)
+    不分 mode, Ask/Load 全部加载, 按时间倒序截取后 reverse 回正序。
+    """
+    req = state["req"]
+    limit = 20 if isinstance(req, AiAskReq) else 10
+    history = _load_paper_history(req.pdf_fp, limit)
+    debug(f"[paper_history] loaded: fp={req.pdf_fp} mode={'ask' if isinstance(req, AiAskReq) else 'load'} rounds={len(history)//2}")
+    return {"paper_history": history}
+
+
 async def compose_messages_node(state: PaperAIState) -> dict:
     """
     根据 req 类型 (Ask / Load) 调用 buildAskMessages / buildLoadMessages 组装 messages。
-    额外把 Crystal_memory.md 内容追加到 system prompt 末尾(让 Crystal 越来越懂用户)。
+    Ask 模式额外把 Crystal_memory.md 内容追加到 system prompt 末尾。
+    Load 模式不注入 agent_memory。
     """
     req = state["req"]
-    memorylist = state.get("memorylist") or []
+    history = state.get("paper_history") or []
+    agent_mem = state.get("agent_memory") or ""
 
     if isinstance(req, AiAskReq):
-        messages = buildAskMessages(req, memorylist)
+        messages = buildAskMessages(req, history)
     elif isinstance(req, AiLoadReq):
-        messages = buildLoadMessages(req, memorylist)
+        messages = buildLoadMessages(req, history)
     else:
         raise ValueError(f"Unknown req type: {type(req)}")
 
-    # 注入 agent memory — 拼到 system 消息末尾
-    if state.get("agent_memory"):
-        appended = (
+    # Ask 模式才注入 agent memory — 拼到 system 消息末尾
+    if isinstance(req, AiAskReq) and agent_mem:
+        messages[0]["content"] = messages[0]["content"] + (
             "\n\n【关于这位用户的认知(Crystal 私人笔记, 不要对用户直述)】\n"
-            + state["agent_memory"]
+            + agent_mem
         )
-        messages[0]["content"] = messages[0]["content"] + appended
 
     return {"messages": messages}
 
@@ -287,7 +325,7 @@ async def llm_call_node(state: PaperAIState) -> dict:
 
 
 async def save_paper_memory_node(state: PaperAIState) -> dict:
-    """把本轮 user + assistant 写入 save/{fp}_ai.json(ADD 模式)"""
+    """把本轮 user + assistant 追加写入 save/{fp}_ai.json (ADD 模式)"""
     req = state["req"]
     fp = req.pdf_fp
     answer = state["final_answer"]
@@ -299,9 +337,16 @@ async def save_paper_memory_node(state: PaperAIState) -> dict:
         user_text = req.chosen_text
 
     path = _paper_history_path(fp)
-    history = state.get("paper_messages") or []
-    if not isinstance(history, list):
-        history = []
+    # 节点间不共享 paper_messages,这里直接读磁盘,确保多请求并发也只追加自己的两条
+    history: list = []
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, list):
+                history = data
+        except (json.JSONDecodeError, OSError):
+            pass
 
     now_ms = int(time.time() * 1000)
     history.append({"role": "user", "content": user_text, "ts": now_ms})
@@ -319,7 +364,8 @@ async def save_paper_memory_node(state: PaperAIState) -> dict:
 
 async def update_agent_memory_node(state: PaperAIState) -> dict:
     """
-    Ask 模式: 异步触发, 顺便把前端传来的 load_buffer 一并喂给 LLM。
+    Ask 模式: 异步触发, 用 state.paper_history 作为更新参考(包含上次 Ask 到本轮的所有轨迹),
+              用本轮 req.ask + final_answer 作为核心更新依据。
     Load 模式: 不更新 Crystal_memory.md(划词不维护持久化记忆)。
     """
     req = state["req"]
@@ -327,15 +373,17 @@ async def update_agent_memory_node(state: PaperAIState) -> dict:
 
     if isinstance(req, AiAskReq):
         user_msg = req.ask
-        load_buffer = req.load_buffer or []
+        # paper_history 已经在 load_paper_history_node 加载过 (Ask = 20 轮),
+        # 天然覆盖"上次 Ask 到这次 Ask"之间的所有对话轨迹
+        intermediate_history = state.get("paper_history") or []
         # 异步执行, 不 await
         task = asyncio.create_task(
-            _update_crystal_memory_async(user_msg, answer, load_buffer)
+            _update_crystal_memory_async(user_msg, answer, intermediate_history)
         )
         debug(
             f"[crystal_memory] scheduled [ask]: "
             f"user_len={len(user_msg)} asst_len={len(answer)} "
-            f"load_buffer={len(load_buffer)} task_id={id(task)}"
+            f"intermediate_rounds={len(intermediate_history)//2} task_id={id(task)}"
         )
     else:
         # Load 模式: 不维护 Crystal_memory.md
@@ -347,10 +395,12 @@ async def update_agent_memory_node(state: PaperAIState) -> dict:
 async def _update_crystal_memory_async(
     user_msg: str,
     assistant_msg: str,
-    load_buffer: list[dict],
+    intermediate_history: list[dict],
 ) -> None:
     """
-    后台任务: 读 Crystal_memory.md, 把 load_buffer + 本轮对话一起喂 LLM, 写回。
+    后台任务: 读 Crystal_memory.md, 把 intermediate_history (上次 Ask 到本轮的完整对话轨迹)
+    + 本轮对话一起喂 LLM, 写回。
+
     复用 ai_config 中的 api_key / api_url / model。
 
     异常静默, 不影响用户响应。Crystal_mem.md 是锦上添花, 损坏不应阻塞主链路。
@@ -359,6 +409,9 @@ async def _update_crystal_memory_async(
         if not ai_config["api_key"] or not ai_config["api_url"]:
             debug("[crystal_memory] skip: ai_config 未设置")
             return
+
+        # 确保目录存在 (冷启动场景)
+        _ensure_memory_dir()
 
         # 读当前 Markdown
         current = ""
@@ -373,7 +426,7 @@ async def _update_crystal_memory_async(
             current,
             user_msg,
             assistant_msg,
-            load_buffer,
+            intermediate_history,
         )
         if new_md:
             with open(CRYSTAL_MEMORY_FILE, "w", encoding="utf-8") as f:
@@ -396,13 +449,13 @@ async def _call_memory_update_llm(
     current_md: str,
     user_msg: str,
     assistant_msg: str,
-    load_buffer: list[dict],
+    intermediate_history: list[dict],
 ) -> str:
     """调 LLM 让它合并更新 Crystal_mem.md, 返回新的 Markdown 文本。配置从 ai_config 读取。"""
     messages = [
         {"role": "system", "content": MEMORY_UPDATE_SYSTEM()},
         {"role": "user", "content": buildMemoryUpdateUserPrompt(
-            current_md, user_msg, assistant_msg, load_buffer
+            current_md, user_msg, assistant_msg, intermediate_history
         )},
     ]
     content, _ = await _call_llm(messages=messages, vision_model=False)
@@ -416,7 +469,7 @@ async def _call_memory_update_llm(
 def build_graph():
     """
     构建 LangGraph StateGraph:
-      load_paper_memory -> load_agent_memory -> compose_messages
+      load_agent_memory -> load_paper_history -> compose_messages
       -> llm_call -> save_paper_memory -> update_agent_memory
     """
     # LangGraph 在新版是 langgraph.graph.StateGraph
@@ -424,16 +477,16 @@ def build_graph():
     from langgraph.graph import StateGraph, END  # type: ignore
 
     g = StateGraph(PaperAIState)
-    g.add_node("load_paper_memory", load_paper_memory_node)
     g.add_node("load_agent_memory", load_agent_memory_node)
+    g.add_node("load_paper_history", load_paper_history_node)
     g.add_node("compose_messages", compose_messages_node)
     g.add_node("llm_call", llm_call_node)
     g.add_node("save_paper_memory", save_paper_memory_node)
     g.add_node("update_agent_memory", update_agent_memory_node)
 
-    g.set_entry_point("load_paper_memory")
-    g.add_edge("load_paper_memory", "load_agent_memory")
-    g.add_edge("load_agent_memory", "compose_messages")
+    g.set_entry_point("load_agent_memory")
+    g.add_edge("load_agent_memory", "load_paper_history")
+    g.add_edge("load_paper_history", "compose_messages")
     g.add_edge("compose_messages", "llm_call")
     g.add_edge("llm_call", "save_paper_memory")
     g.add_edge("save_paper_memory", "update_agent_memory")
@@ -456,14 +509,13 @@ def _get_graph():
     return _GRAPH
 
 
-async def run_ask(req: AiAskReq, memorylist: Optional[list[str]] = None) -> dict:
+async def run_ask(req: AiAskReq) -> dict:
     """Run LangGraph for Ask 模式 — 返回 state 字典"""
     initial: PaperAIState = {
         "req": req,
         "messages": [],
-        "paper_messages": [],
         "agent_memory": "",
-        "memorylist": memorylist or [],
+        "paper_history": [],
         "final_answer": "",
         "usage": {},
     }
@@ -472,14 +524,13 @@ async def run_ask(req: AiAskReq, memorylist: Optional[list[str]] = None) -> dict
     return result
 
 
-async def run_load(req: AiLoadReq, memorylist: Optional[list[str]] = None) -> dict:
+async def run_load(req: AiLoadReq) -> dict:
     """Run LangGraph for Load 模式"""
     initial: PaperAIState = {
         "req": req,
         "messages": [],
-        "paper_messages": [],
         "agent_memory": "",
-        "memorylist": memorylist or [],
+        "paper_history": [],
         "final_answer": "",
         "usage": {},
     }

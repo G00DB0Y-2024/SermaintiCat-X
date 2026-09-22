@@ -110,27 +110,26 @@ def buildAssistantContext(quotes: list[dict], quote_content: str) -> str:
     return f"\n\n用户引用的解释：{quote_content}"
 
 
-def buildAskMessages(req: AiAskReq, memorylist: list[str]) -> list[dict]:
+def buildAskMessages(req: AiAskReq, paper_history: list[dict]) -> list[dict]:
     """
     Ask 模式消息构造。
 
     参数:
-      req: AiAskReq
-      memorylist: 用户阅读过的论文片段(由 home.vue 的 this.memorylist 传过来,
-                 这里保留参数以便 LangGraph 节点在 compose_messages 时传入)
+      req:           AiAskReq
+      paper_history: 当前 pdf_fp 最近 N 轮对话 (user/assistant 交替, 已正序)
 
     返回: OpenAI 格式的 messages 数组
       [
-        {role:system, content: ...},
-        {role:assistant, content: '之前用户查看过的论文内容：...'},
-        {role:user, content: <str or list[dict]>}
+        {role:system, content: SYSTEM_ASK()},
+        ...paper_history (最近 N 轮 user/assistant),
+        {role:user, content: <str or list[dict]>},   # 本轮
       ]
     """
     is_vision = req.image_base64 is not None
 
     if is_vision:
         suffix = (
-            "，回答用户提问：" + req.ask
+            "请回答用户的询问：" + req.ask
             if req.ask.strip()
             else "对图片进行解释"
         )
@@ -141,38 +140,38 @@ def buildAskMessages(req: AiAskReq, memorylist: list[str]) -> list[dict]:
     else:
         user_content = buildUserActionText(req.ask, req.quotes, req.quote_content)
 
-    return [
+    messages: list[dict] = [
         {"role": "system", "content": SYSTEM_ASK()},
-        {
-            "role": "assistant",
-            "content": (
-                "之前用户查看过的论文内容："
-                + "\n\n".join(memorylist)
-                + buildAssistantContext(req.quotes, req.quote_content)
-            ),
-        },
-        {"role": "user", "content": user_content},
     ]
+    # 插入历史 (已经按时间正序)
+    messages.extend(paper_history)
+    # 本轮 user
+    messages.append({"role": "user", "content": user_content})
+    return messages
 
 
-def buildLoadMessages(req: AiLoadReq, memorylist: list[str]) -> list[dict]:
+def buildLoadMessages(req: AiLoadReq, paper_history: list[dict]) -> list[dict]:
     """
     Load 模式消息构造。
 
     参数:
-      req: AiLoadReq
-      memorylist: 用户阅读过的论文片段
+      req:           AiLoadReq
+      paper_history: 当前 pdf_fp 最近 N 轮对话 (user/assistant 交替, 已正序)
 
     返回: OpenAI 格式的 messages 数组
+      [
+        {role:system, content: SYSTEM_LOAD()},
+        ...paper_history (最近 N 轮 user/assistant),
+        {role:user, content: ...},   # 本轮
+      ]
     """
     instruction = "用中文准确概括" if req.added_prompt == "" else req.added_prompt
 
-    return [
+    messages: list[dict] = [
         {"role": "system", "content": SYSTEM_LOAD()},
-        {
-            "role": "assistant",
-            "content": "之前的论文内容：" + "\n\n".join(memorylist),
-        },
+    ]
+    messages.extend(paper_history)
+    messages.append(
         {
             "role": "user",
             "content": (
@@ -184,7 +183,8 @@ def buildLoadMessages(req: AiLoadReq, memorylist: list[str]) -> list[dict]:
                 "- 对于公式，请在公式后用markdown引用格式解释公式含义或变量解释，不要在其他地方重复解释\n"
             ),
         },
-    ]
+    )
+    return messages
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -220,35 +220,32 @@ def buildMemoryUpdateUserPrompt(
     current_memory_md: str,
     user_msg: str,
     assistant_msg: str,
-    background_loads: list[dict] | None = None,
+    intermediate_history: list[dict] | None = None,
 ) -> str:
     """
     构造 update_crystal_memory 的 user prompt:
-    把当前 Crystal_mem.md 内容 + 本轮对话 + 背景划词事件喂给 LLM, 让它返回更新后的 Markdown。
+    把当前 Crystal_mem.md 内容 + 上次 Ask 到本轮之间的完整对话轨迹 (intermediate_history)
+    + 本轮对话一起喂给 LLM, 让它返回更新后的 Markdown。
+
+    intermediate_history 格式: [{role: "user"|"assistant", content: str}, ...] (已正序)
     """
     bg_block = ""
-    if background_loads:
+    if intermediate_history:
         lines = []
-        for ev in background_loads:
-            ts = ev.get("ts", "")
-            kind = ev.get("kind", "load")
-            if kind == "load":
-                chosen = ev.get("chosen_text", "").replace("\n", " ")[:80]
-                prompt_ = ev.get("added_prompt", "")
-                ans = ev.get("answer", "")
-                lines.append(
-                    f"- [{ts}] 用户划词:「{chosen}」"
-                    + (f"\n  附加指令: {prompt_}" if prompt_ else "")
-                    + f"\n  Crystal 回答: {ans[:200]}..."
-                )
-            elif kind == "ask":
-                ask = ev.get("ask", "").replace("\n", " ")[:80]
-                ans = ev.get("answer", "")
-                lines.append(
-                    f"- [{ts}] 用户提问:「{ask}」\n  Crystal 回答: {ans[:200]}..."
-                )
+        for ev in intermediate_history:
+            role = ev.get("role", "")
+            content = ev.get("content", "")
+            if not isinstance(content, str):
+                continue
+            if role == "user":
+                lines.append(f"- 用户:「{content}」")
+            elif role == "assistant":
+                lines.append(f"  Crystal: {content[:200]}...")
         if lines:
-            bg_block = "\n【本次对话前的近期划词与对话记录, 仅供参考】\n" + "\n".join(lines) + "\n"
+            bg_block = (
+                "\n【上次 Ask 以来到本轮之间的对话轨迹(中间发生的 Load / Ask), 仅供参考】\n"
+                + "\n".join(lines) + "\n"
+            )
 
     return (
         "【当前 Crystal_mem.md 内容】\n"

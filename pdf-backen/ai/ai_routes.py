@@ -10,7 +10,7 @@ AI HTTP 端点 — /ai/config、/ai/ask、/ai/load。
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException
 
 from .ai_models import (
     AiConfigReq, AiConfigResp,
@@ -21,31 +21,6 @@ from utils.log import debug
 
 
 router = APIRouter(prefix="/ai", tags=["ai"])
-
-
-def _extract_memorylist(request: Request) -> list[str]:
-    """
-    从 header `x-pdf-memorylist` 拿 memorylist (用户阅读过的论文片段)。
-
-    Header 只允许 ISO-8859-1,前端把 JSON 字符串做 base64 编码后再传,
-    后端 base64 解码 + json.loads。
-    """
-    raw = request.headers.get("x-pdf-memorylist", "")
-    if not raw:
-        return []
-    # 优先 base64 解码;若失败则兼容旧版 (裸 JSON, 仅 ASCII)
-    decoded: str | None = None
-    try:
-        import base64
-        decoded = base64.b64decode(raw, validate=True).decode("utf-8")
-    except Exception:
-        decoded = raw
-    try:
-        import json
-        v = json.loads(decoded)
-        return v if isinstance(v, list) else []
-    except Exception:
-        return []
 
 
 # ── /ai/config ──────────────────────────────────────────────────────────
@@ -75,15 +50,14 @@ async def ai_config_get() -> AiConfigResp:
 # ── /ai/ask ────────────────────────────────────────────────────────────
 
 @router.post("/ask", response_model=AiResp)
-async def ai_ask(req: AiAskReq, request: Request) -> AiResp:
+async def ai_ask(req: AiAskReq) -> AiResp:
     """
     Ask 模式 — 用户在论文阅读过程中自由提问。
     支持 vision(图文多模态, 通过 req.image_base64 非空判定)。
     api_key / api_url / model / vision_model 来自 ai_config。
     """
     try:
-        memorylist = _extract_memorylist(request)
-        result = await ai_agent.run_ask(req, memorylist=memorylist)
+        result = await ai_agent.run_ask(req)
         return AiResp(
             content=result.get("final_answer", ""),
             usage=result.get("usage") or None,
@@ -98,14 +72,13 @@ async def ai_ask(req: AiAskReq, request: Request) -> AiResp:
 # ── /ai/load ───────────────────────────────────────────────────────────
 
 @router.post("/load", response_model=AiResp)
-async def ai_load(req: AiLoadReq, request: Request) -> AiResp:
+async def ai_load(req: AiLoadReq) -> AiResp:
     """
     Load 模式 — 用户选中文本, 要求 Crystal 总结 / 解释。
     api_key / api_url / model 来自 ai_config。
     """
     try:
-        memorylist = _extract_memorylist(request)
-        result = await ai_agent.run_load(req, memorylist=memorylist)
+        result = await ai_agent.run_load(req)
         return AiResp(
             content=result.get("final_answer", ""),
             usage=result.get("usage") or None,

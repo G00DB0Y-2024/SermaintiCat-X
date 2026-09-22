@@ -204,7 +204,7 @@ export default{
   data(){
     return{
       chosen_text:"",
-      chosen_text_history:"",
+      chosen_text_history:"",  // 上一轮实际发给 AI 的 chosen_text,用于去重（已发过的文本不再触发）
       chosen_add_text:[],
       chosen_hldata:null,
       shown_text:"",
@@ -216,20 +216,12 @@ export default{
       askContent:"",
       askQuote:[],
       askImage:{img:null, size:0},
-      
 
-      memorylist:[],
 
       pdf_fp:"", //pdf指纹，用于访问AI的储存
 
       waiting:false,
-      waiting_cancel:false,
-      waiting_mouse:false,
-      wait_text:'WAIT',
-      wait_color:'#4e7bbf',  //#4e7bbf #AC4848
       cancelTokenSource:null,
-
-      opacityArr:[],
 
       annotation_mode:false,
       annotation_flag:false, //判断是否确认注释
@@ -326,7 +318,6 @@ export default{
           this.pdf_fp = message.fp
           this.$axios.post('/reqLoadAIPre', {fp:this.pdf_fp}).then(res=>{
             if(res.data){
-              this.wait_text = 'LOAD'
               this.waiting = true
               this.handelAiLoad()
 
@@ -772,24 +763,12 @@ export default{
       }
     },
     handleForceStop(){
-      if(this.wait_text === 'LOAD' || !this.waiting)  //加载操作不可取消
-        return
-      
-      this.waiting = false //强制停止
-      this.waiting_cancel = true //强制遮罩
-      this.cancelTokenSource?this.cancelTokenSource.cancel('请求被用户取消'):null //强制停止请求
-      this.wait_text = 'CANCEL'
-      this.wait_color = '#AC4848'
+      // 加载历史阶段不创建 cancelTokenSource, 视为不可取消;
+      // 没有正在进行的请求时也直接 return
+      if(!this.cancelTokenSource) return
 
-      const delay_time = 500
-      setTimeout(() => {
-        this.waiting_cancel = false
-      }, delay_time);
-      setTimeout(() => {
-        this.wait_text = 'WAIT'
-        this.wait_color = '#4e7bbf'
-      }, delay_time + 200);  //附加动画时间 0.2s
-
+      this.cancelTokenSource.cancel('请求被用户取消')
+      this.waiting = false
     },
     generateRandomCode() {
       // 生成0-999999的随机数，不足六位时前补0
@@ -1031,7 +1010,6 @@ export default{
 
           setTimeout(()=>{
             this.ai_res = res.data
-            this.wait_text = 'WAIT'
             this.waiting = false
 
             //自动跳转
@@ -1232,18 +1210,20 @@ export default{
 
       }
       this.resetImgInfo()
-      if(!this.showOrigin && !this.waiting && text != "" && text != this.chosen_text_history){
+      if(!this.showOrigin && !this.waiting && text !== "" && text !== this.chosen_text_history){
         this.chosen_hldata = hl
         if(add){
-          this.chosen_text_history = this.chosen_text
+          // 累积模式: 把新片段追加到 chosen_add_text,并把 joined 后的完整文本暂存 chosen_text
+          // 注意: 此时还不能 callAIResponse,等用户选完所有片段后再一次性发送
           this.chosen_add_text.push(text)
           this.chosen_text = this.chosen_add_text.join('')
-
         }else{
-          this.chosen_text_history = this.chosen_text
-          this.chosen_text += text  //这一步是为了上面add
-          this.addMemoryList(this.chosen_text)
+          // 完整发送模式: 单次选中的整段文本直接发
+          this.chosen_text = text
+
           this.callAIResponse()
+          // 清空临时累积状态;chosen_text_history 留作下一轮去重
+          this.chosen_text_history = this.chosen_text
           this.chosen_text = ""
           this.chosen_add_text.length = 0
         }
@@ -1252,20 +1232,6 @@ export default{
       }
       this.shown_text = text
 
-    },
-    addMemoryList(text){
-      const mem_len = 20  //记忆长度
-      if(this.memorylist.length < mem_len){
-        if(!this.memorylist.includes(text)){
-          this.memorylist.push(text)
-        }
-      }else{
-        let index = this.memorylist.indexOf(text)
-        if(index === -1 || index === 0){
-          this.memorylist.shift()
-          this.memorylist.push(text)
-        }
-      }
     },
     handleQuote(gid, msg, method){
       let new_quote = {quote_gid:gid, quote_msg:msg}
@@ -1336,7 +1302,7 @@ export default{
             fp: this.pdf_fp,
           })
           this.ai_res.length = 0
-          this.hl_arr.length = 0
+          this.hl_arr = {}
           this.UpdateWindowUI().then(() => {
             this.adjustScroll()
             this.loadRangeHighlight()
@@ -1362,7 +1328,6 @@ export default{
       // ── 准备 cancel token ──
       this.cancelTokenSource?.cancel('请求被用户取消')
       this.cancelTokenSource = this.$axios.CancelToken.source()
-      this.controller = new AbortController()
 
       // ── 判断是否视觉模式 ──
       const isVision = this.askImage.img !== null
@@ -1394,10 +1359,6 @@ export default{
       })
 
       // ── 发送请求(后端 LangGraph /ai/ask) ──
-      // memorylist 是中文片段, header 只能 ISO-8859-1, 必须 base64
-      const headers = {
-        'x-pdf-memorylist': btoa(unescape(encodeURIComponent(JSON.stringify(this.memorylist || [])))),
-      }
       this.$axios.post('/ai/ask', {
         pdf_fp: this.pdf_fp,
         ask: this.askContent,
@@ -1406,7 +1367,6 @@ export default{
         image_base64: isVision ? this.askImage.img : null,
       }, {
         cancelToken: this.cancelTokenSource.token,
-        headers,
       })
         .then(({ data }) => {
           const finalText = this.AIoutputProcess(data.content || '')
@@ -1441,7 +1401,6 @@ export default{
       //请求控制
       this.cancelTokenSource?this.cancelTokenSource.cancel('请求被用户取消'):null //强制停止请求
       this.cancelTokenSource = this.$axios.CancelToken.source();
-      this.controller = new AbortController();
 
       // 【第三步】先 push 占位 assistant 气泡(text 留空,_thinking 由 placeholderIndex 触发)
       // token_count 必须在初始化时声明(stream 结束时 aiService 返回的
@@ -1472,11 +1431,6 @@ export default{
         added_prompt: this.chosen_add_text && this.chosen_add_text.length > 0
           ? this.chosen_add_text.join('\n')
           : '',
-      }, {
-        cancelToken: this.cancelTokenSource.token,
-        headers: {
-          'x-pdf-memorylist': btoa(unescape(encodeURIComponent(JSON.stringify(this.memorylist || [])))),
-        },
       })
         .then(({ data }) => {
           const finalText = this.AIoutputProcess(data.content || '')
