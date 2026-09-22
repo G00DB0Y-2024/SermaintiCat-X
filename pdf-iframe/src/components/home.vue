@@ -192,7 +192,6 @@ import gptRenderUnit from './gptRenderUnit.vue'
 // waiting.vue 已在第三步删除(改用 MsgUnitComponent + thinking prop)
 // import waiting from './waiting.vue'
 import { serialize, deserialize } from '../scripts/range-serializer.js';
-import { chat, buildAskMessages, buildLoadMessages } from '../scripts/aiService.js';
 
 // RulesOfMarkdown / RulesOfLatex 已迁移到 scripts/aiService.js
 
@@ -220,13 +219,6 @@ export default{
       
 
       memorylist:[],
-      gptModel:"gemini-2.0-flash",
-      askModel:"gemini-2.5-flash",
-      gptModelVision:"",  // 将从 storage 读取，不再写死
-      apiKey: "", // 替换为你的 AiHubMix API 密钥
-      apiUrl: "",
-      addedPrompt:"",
-      deepseekThinking:false, // DeepSeek 思考模式开关，默认关闭（false=disabled, true=enabled）
 
       pdf_fp:"", //pdf指纹，用于访问AI的储存
 
@@ -309,13 +301,17 @@ export default{
         }
         if(message.type === 'SET_MODEL'){
           console.log("VUE PARAMETERS SET: "+`${JSON.stringify(message)}`)
-          this.gptModel = message.model
-          this.gptModelVision = message.visionModel
-          this.askModel = message.model  // Main Model 用于语言输出
-          this.apiKey = message.apiKey
-          this.apiUrl = message.apiUrl
-          this.addedPrompt = message.prompt
-
+          // 每次 SET_MODEL 都 POST 到后端,后端 ai_agent.ai_config 统一维护。
+          // ask / load 请求不再需要透传 api_key / api_url / model。
+          this.$axios.post('/ai/config', {
+            api_key: message.apiKey || '',
+            api_url: message.apiUrl || '',
+            model: message.model || '',
+            vision_model: message.visionModel || message.model || '',
+            deepseek_thinking: !!message.deepseekThinking,
+          }).catch(err => {
+            console.error('[/ai/config] failed:', err)
+          })
         }
         if(message.type === 'RESET_MORE'){
           //MORE 清除请求
@@ -1371,19 +1367,6 @@ export default{
       // ── 判断是否视觉模式 ──
       const isVision = this.askImage.img !== null
 
-      // ── 选择模型 ──
-      const currentModel = isVision ? this.gptModelVision : this.askModel
-
-      // ── 构建 messages ──
-      const messages = buildAskMessages({
-        askContent: this.askContent,
-        memorylist: this.memorylist,
-        quotes: this.askQuote,
-        quoteContent: this.getQuoteContent(),
-        imageBase64: isVision ? this.askImage.img : null,
-        visionModel: isVision,
-      })
-
       // ── Push 用户气泡 ──
       this.handleAiChange('ADD', -1, {
         type: 'LIST_TYPE_ASK',
@@ -1410,22 +1393,24 @@ export default{
         this.UpdateWindowUI().then(() => this.adjustScroll(this.placeholderIndex - 1))
       })
 
-      // ── 发送请求 ──
-      chat({
-        axios: this.$axios,
-        apiUrl: this.apiUrl,
-        apiKey: this.apiKey,
-        model: currentModel,
-        enableThinking: this.deepseekThinking,
-        visionModel: isVision,
-        messages,
+      // ── 发送请求(后端 LangGraph /ai/ask) ──
+      // memorylist 是中文片段, header 只能 ISO-8859-1, 必须 base64
+      const headers = {
+        'x-pdf-memorylist': btoa(unescape(encodeURIComponent(JSON.stringify(this.memorylist || [])))),
+      }
+      this.$axios.post('/ai/ask', {
+        pdf_fp: this.pdf_fp,
+        ask: this.askContent,
+        quotes: this.askQuote,
+        quote_content: this.getQuoteContent(),
+        image_base64: isVision ? this.askImage.img : null,
+      }, {
         cancelToken: this.cancelTokenSource.token,
+        headers,
       })
-        .then(({ content, usage }) => {
-          const finalText = this.AIoutputProcess(content)
-          // 把 token_count 一并写回占位;否则气泡下方不显示 token 统计。
-          // aiService.chat() 已经返回了 usage.total_tokens,不能丢。
-          const tokenCount = usage?.total_tokens ?? null
+        .then(({ data }) => {
+          const finalText = this.AIoutputProcess(data.content || '')
+          const tokenCount = data.usage?.total_tokens ?? null
           // skipScroll:true ── 占位 AI 在 push 时已经滚到位(adjustScroll(this.placeholderIndex - 1)),
           // stream 完成的 SET 不应再触发 adjustScroll 把 AI 顶到顶上去,
           // 否则会再次强行滚动覆盖用户当前查看位置。
@@ -1480,30 +1465,25 @@ export default{
         })
       })
 
-      // ── 构建 messages ──
-      const messages = buildLoadMessages({
-        chosenText: this.chosen_text,
-        memorylist: this.memorylist,
-        addedPrompt: this.addedPrompt,
-      })
-
-      // ── 发送请求 ──
-      chat({
-        axios: this.$axios,
-        apiUrl: this.apiUrl,
-        apiKey: this.apiKey,
-        model: this.gptModel,
-        enableThinking: this.deepseekThinking,
-        visionModel: false,
-        messages,
+      // ── 发送请求(后端 LangGraph /ai/load) ──
+      this.$axios.post('/ai/load', {
+        pdf_fp: this.pdf_fp,
+        chosen_text: this.chosen_text,
+        added_prompt: this.chosen_add_text && this.chosen_add_text.length > 0
+          ? this.chosen_add_text.join('\n')
+          : '',
+      }, {
         cancelToken: this.cancelTokenSource.token,
+        headers: {
+          'x-pdf-memorylist': btoa(unescape(encodeURIComponent(JSON.stringify(this.memorylist || [])))),
+        },
       })
-        .then(({ content, usage }) => {
-          const finalText = this.AIoutputProcess(content)
+        .then(({ data }) => {
+          const finalText = this.AIoutputProcess(data.content || '')
           placeholder.text = finalText
           placeholder.dt = this.getFormattedDate()
           placeholder.hl = this.chosen_hldata
-          if (usage?.total_tokens != null) placeholder.token_count = usage.total_tokens
+          if (data.usage?.total_tokens != null) placeholder.token_count = data.usage.total_tokens
           // skipScroll:true ── 占位 AI 在 push 时已经 adjustScroll(placeholderIndex)
           // 滚到位,stream 完成的 SET 不应再触发滚动把 AI 顶上去。
           this.handleAiChange('SET', this.placeholderIndex, placeholder, { skipScroll: true })

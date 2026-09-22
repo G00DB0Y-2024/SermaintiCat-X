@@ -17,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
+from ai.ai_routes import router as ai_router
 
 '''
 ******************************************
@@ -52,6 +53,8 @@ else:
 static_file_abspath = os.path.join(os.path.dirname(__file__), "static")
 os.makedirs(static_file_abspath, exist_ok=True)  # 如果目录不存在则创建
 app.mount("/static", StaticFiles(directory=static_file_abspath), name="static")
+
+app.include_router(ai_router)
 
 class AiLoadReq(BaseModel):
     fp:str
