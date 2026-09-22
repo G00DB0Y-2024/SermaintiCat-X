@@ -6,6 +6,9 @@ Crystal 人设与 Prompt 模板 — 从 pdf-iframe/src/scripts/aiService.js 完�
 """
 from __future__ import annotations
 
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 from .ai_models import AiAskReq, AiLoadReq
 
 
@@ -54,23 +57,54 @@ def CrystalPersona() -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# 时间感知
+# ═══════════════════════════════════════════════════════════════════════
+
+def get_current_time_context() -> str:
+    """
+    获取当前时间的上下文信息，用于让 AI 感知时间。
+    返回格式化的日期时间字符串，包含星期、农历/公历日期、时区等。
+    """
+    now = datetime.now(ZoneInfo("Asia/Shanghai"))
+    weekday_names = ["一", "二", "三", "四", "五", "六", "日"]
+    weekday = weekday_names[now.weekday()]
+
+    return (
+        f"【当前时间感知】\n"
+        f"- 当前时间：{now.strftime('%Y年%m月%d日 %H:%M:%S')}（北京时间）\n"
+        f"- 今天是：星期{weekday}\n"
+        f"- 可用工具：你可以使用 <get_current_time/> 标签来查询当前精确时间（返回 ISO 8601 格式和可读格式）。\n"
+        f"  例如需要计算日期差、判断具体时间点时，使用此工具。\n"
+    )
+
+
+def get_current_timestamp() -> int:
+    """获取当前 Unix 时间戳（毫秒）"""
+    return int(datetime.now().timestamp() * 1000)
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # System Prompt 模板
 # ═══════════════════════════════════════════════════════════════════════
 
-def SYSTEM_ASK() -> str:
-    """Ask 模式 system prompt: CrystalPersona + 当前任务(用户提问)"""
+def SYSTEM_ASK(time_context: str) -> str:
+    """Ask 模式 system prompt: CrystalPersona + 时间感知 + 当前任务(用户提问)"""
     return (
         CrystalPersona()
+        + "\n\n"
+        + f"【时间感知:{time_context}】"
         + "\n\n"
         + "【当前任务】\n"
         + "用户正在阅读学术论文并向你提问。结合论文上下文和记忆，回答用户的问题。"
     )
 
 
-def SYSTEM_LOAD() -> str:
-    """Load 模式 system prompt: CrystalPersona + 当前任务(选中文本总结)"""
+def SYSTEM_LOAD(time_context: str) -> str:
+    """Load 模式 system prompt: CrystalPersona + 时间感知 + 当前任务(选中文本总结)"""
     return (
         CrystalPersona()
+        + "\n\n"
+        + f"【时间感知:{time_context}】"
         + "\n\n"
         + "【当前任务】\n"
         + "用户选中了论文中的一段文字，要求你进行总结和解释。直接输出内容，不要任何引导句。"
@@ -110,17 +144,18 @@ def buildAssistantContext(quotes: list[dict], quote_content: str) -> str:
     return f"\n\n用户引用的解释：{quote_content}"
 
 
-def buildAskMessages(req: AiAskReq, paper_history: list[dict]) -> list[dict]:
+def buildAskMessages(req: AiAskReq, paper_history: list[dict], time_context: str) -> list[dict]:
     """
     Ask 模式消息构造。
 
     参数:
       req:           AiAskReq
       paper_history: 当前 pdf_fp 最近 N 轮对话 (user/assistant 交替, 已正序)
+      time_context:  时间感知上下文（包含当前时间和时间查询工具说明）
 
     返回: OpenAI 格式的 messages 数组
       [
-        {role:system, content: SYSTEM_ASK()},
+        {role:system, content: SYSTEM_ASK(time_context)},
         ...paper_history (最近 N 轮 user/assistant),
         {role:user, content: <str or list[dict]>},   # 本轮
       ]
@@ -141,7 +176,7 @@ def buildAskMessages(req: AiAskReq, paper_history: list[dict]) -> list[dict]:
         user_content = buildUserActionText(req.ask, req.quotes, req.quote_content)
 
     messages: list[dict] = [
-        {"role": "system", "content": SYSTEM_ASK()},
+        {"role": "system", "content": SYSTEM_ASK(time_context)},
     ]
     # 插入历史 (已经按时间正序)
     messages.extend(paper_history)
@@ -150,17 +185,18 @@ def buildAskMessages(req: AiAskReq, paper_history: list[dict]) -> list[dict]:
     return messages
 
 
-def buildLoadMessages(req: AiLoadReq, paper_history: list[dict]) -> list[dict]:
+def buildLoadMessages(req: AiLoadReq, paper_history: list[dict], time_context: str) -> list[dict]:
     """
     Load 模式消息构造。
 
     参数:
       req:           AiLoadReq
       paper_history: 当前 pdf_fp 最近 N 轮对话 (user/assistant 交替, 已正序)
+      time_context:  时间感知上下文（包含当前时间和时间查询工具说明）
 
     返回: OpenAI 格式的 messages 数组
       [
-        {role:system, content: SYSTEM_LOAD()},
+        {role:system, content: SYSTEM_LOAD(time_context)},
         ...paper_history (最近 N 轮 user/assistant),
         {role:user, content: ...},   # 本轮
       ]
@@ -168,7 +204,7 @@ def buildLoadMessages(req: AiLoadReq, paper_history: list[dict]) -> list[dict]:
     instruction = "用中文准确概括" if req.added_prompt == "" else req.added_prompt
 
     messages: list[dict] = [
-        {"role": "system", "content": SYSTEM_LOAD()},
+        {"role": "system", "content": SYSTEM_LOAD(time_context)},
     ]
     messages.extend(paper_history)
     messages.append(

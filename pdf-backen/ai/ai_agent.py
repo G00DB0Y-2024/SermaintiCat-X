@@ -26,6 +26,7 @@ from .ai_models import AiAskReq, AiLoadReq, AiResp
 from .prompts import (
     buildAskMessages, buildLoadMessages,
     MEMORY_UPDATE_SYSTEM, buildMemoryUpdateUserPrompt,
+    get_current_time_context,
 )
 from utils.log import debug
 
@@ -288,10 +289,13 @@ async def compose_messages_node(state: PaperAIState) -> dict:
     history = state.get("paper_history") or []
     agent_mem = state.get("agent_memory") or ""
 
+    # 动态生成时间上下文
+    time_context = get_current_time_context()
+
     if isinstance(req, AiAskReq):
-        messages = buildAskMessages(req, history)
+        messages = buildAskMessages(req, history, time_context)
     elif isinstance(req, AiLoadReq):
-        messages = buildLoadMessages(req, history)
+        messages = buildLoadMessages(req, history, time_context)
     else:
         raise ValueError(f"Unknown req type: {type(req)}")
 

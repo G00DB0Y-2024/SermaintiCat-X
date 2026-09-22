@@ -1014,17 +1014,12 @@ export default{
             if(this.ai_res){
 
               this.UpdateWindowUI().then(()=>{
-                // 跳转到最后一组的开头(而不是最后一条消息)
-                // 原因:最后一组通常是 ASK + AI 的问答,用户期望看到的是用户气泡置顶。
-                // 之前 adjustScroll() 不传参默认跳到 ai_res 最后一条,会把 AI 气泡顶到屏幕顶部,
-                // 用户得再往上滚才能看到自己的提问,体验割裂。
-                const lastGroup = this.groupedChildrenHeightArr[this.groupedChildrenHeightArr.length - 1]
-                const jumpTo = lastGroup ? lastGroup.start : this.ai_res.length - 1
-                this.adjustScroll(jumpTo)
-                this.loadRangeHighlight()
-                this.current_index = jumpTo
-                // 侧键初始化到末尾(向下走才能看到更早的消息,符合直觉)
+                // 跳转到最后一个气泡(ai_res 最后一条),而非最后一组的开头(ASK)。
+                // 用户偏好:会话载入时把"最新一条消息"置顶,无论它是 ASK、AI 还是 ANNO,
+                // 看到的就是这条对话的末尾,与聊天软件的"打开就跳到最新"一致。
                 this.current_index = Math.max(0, this.ai_res.length - 1)
+                this.adjustScroll(this.current_index)
+                this.loadRangeHighlight()
                 this.$refs.blurTextarea.focus()
               })
 
@@ -1369,9 +1364,11 @@ export default{
         .then(({ data }) => {
           const finalText = this.AIoutputProcess(data.content || '')
           const tokenCount = data.usage?.total_tokens ?? null
-          // skipScroll:true ── 占位 AI 在 push 时已经滚到位(adjustScroll(this.placeholderIndex - 1)),
-          // stream 完成的 SET 不应再触发 adjustScroll 把 AI 顶到顶上去,
-          // 否则会再次强行滚动覆盖用户当前查看位置。
+          // 不再 skipScroll:让 handleAiChange 在 SET 完成后自动 adjustScroll,
+          // 把刚渲染完毕的 AI 气泡精准置顶(用户期望的"渲染完后置顶"行为)。
+          // 占位 AI 推送时已经滚到 placeholderIndex - 1(ASK 位置),流式期间
+          // 用户已经在看这条 AI 在原位渲染;流结束这一次 SET 是最后帧,
+          // 滚到 placeholderIndex(AI 自身)正好把完整 AI 置顶,体验连贯。
           this.handleAiChange('SET', this.placeholderIndex, {
             type: 'LIST_TYPE_AI',
             text: finalText,
@@ -1379,7 +1376,7 @@ export default{
             hl: this.chosen_hldata,
             img: '',
             token_count: tokenCount,
-          }, { skipScroll: true })
+          })
           this.waiting = false
           this.placeholderIndex = -1
           window.focus()
@@ -1436,9 +1433,9 @@ export default{
           placeholder.dt = this.getFormattedDate()
           placeholder.hl = this.chosen_hldata
           if (data.usage?.total_tokens != null) placeholder.token_count = data.usage.total_tokens
-          // skipScroll:true ── 占位 AI 在 push 时已经 adjustScroll(placeholderIndex)
-          // 滚到位,stream 完成的 SET 不应再触发滚动把 AI 顶上去。
-          this.handleAiChange('SET', this.placeholderIndex, placeholder, { skipScroll: true })
+          // 不再 skipScroll:handleAiChange 内部会在 UpdateWindowUI 完成后
+          // 自动 adjustScroll(placeholderIndex),把刚渲染完毕的 AI 精准置顶。
+          this.handleAiChange('SET', this.placeholderIndex, placeholder)
           this.waiting = false
           this.placeholderIndex = -1
           this.cancelTokenSource = null
