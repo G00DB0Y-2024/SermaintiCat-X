@@ -53,15 +53,16 @@
         <!-- GPT显示区域 -->
         <div style="display: flex; width: 100%; height: 100%; overflow: hidden; position: relative;">
 
-          <!-- 索引部分 -->
-          <div style="display: flex; flex-flow: column; height: 100%; width: 7px; background-color: white;">
-            <div v-for="(item, index) in childrenHeightArr"
-              :class="current_index===index && !can_current_index_change?'div-index-block-active':'div-index-block'"
-              :style="{
-              height:`${item.hrate}%`, 
-              backgroundColor:MapHeadBarBackgroundColor(item.htype),
-            }" @click="adjustScroll(item.hindex); highlightScroll(item.hindex);">
-            </div>
+<!-- 索引部分(按"问答组"合并显示,鼠标侧键也以组为单位跳转) -->
+        <div style="display: flex; flex-flow: column; height: 100%; width: 7px; background-color: white;">
+          <div v-for="(group, gi) in groupedChildrenHeightArr"
+            :key="`g-${group.start}-${group.end}`"
+            :class="current_index>=group.start && current_index<group.end && !can_current_index_change?'div-index-block-active':'div-index-block'"
+            :style="{
+            height:`${group.hrate}%`,
+            backgroundColor:MapGroupColor(group),
+          }" @click="adjustScroll(group.start); highlightScroll(group.start);">
+          </div>
 
             <!-- 位置指针 -->
             <div v-if="ai_res.length!==0" style="
@@ -71,12 +72,13 @@
                 display: flex;
                 align-items: start;
                 justify-content: start;
-                height: 0;
-                margin-top: -7.5px;
+                height: 14px;
+                margin-top: 0;
+                transform: translateY(-50%);
                 font-size: 10px;
+                line-height: 14px;
                 color: black;
                 font-family: cursive;
-                scale: 0.8;
                 text-shadow: 2px 2px 2px rgba(0,0,0,0.3);
                 transition: all 0.15s ease;
               " :style="{top: scrollTopRate}">◀</div>
@@ -247,13 +249,15 @@ export default{
       can_render_click:true,
       placeholderIndex: -1,  // 当前 thinking 占位消息在 ai_res 中的索引,-1 表示无
 
-      childrenHeightArr:[],  //索引显示model
+      childrenHeightArr:[],  //索引显示model(单条粒度,保留向后兼容)
+      groupedChildrenHeightArr:[],  //索引显示model(ASK+AI 合并为一组的版本,侧条渲染用这个)
       classifyRateArr:[0,0,0], //显示每一种卡片百分比
       scrollTopRate:"0%",  //指针位置
       scrollHeightSum:1,
 
       containerRect:null,
-      current_index:0,  //追踪索引
+      current_index:0,  //追踪索引(指向 ai_res 中的某一条消息)
+      group_cursor:0,   //鼠标侧键用的"组"游标(指向 groupedChildrenHeightArr 的下标)
       can_current_index_change:true, //是否允许当前索引改变
       lastBottomRate:1, //最后一个元素的底部距离容器底部占容器百分比
       imageShowFlag: false, //图片显示标志
@@ -526,20 +530,24 @@ export default{
     handleMouseSideButton(event){
       if(!this.can_current_index_change)
         return
-      if (event.button === 3) {  // 后退侧键
-        this.current_index ++
-      } else if (event.button === 4) {  // 前进侧键
-        this.current_index --
-      }
-      else{
+      if (this.groupedChildrenHeightArr.length === 0) return
+
+      if (event.button === 3) {  // 后退侧键(向下走)
+        this.group_cursor++
+      } else if (event.button === 4) {  // 前进侧键(向上走)
+        this.group_cursor--
+      } else {
         return
       }
-      this.current_index = this.current_index <0 ? 0: this.current_index>=this.ai_res.length? this.ai_res.length-1 :this.current_index  //边界修正
-    
-      this.adjustScroll(this.current_index); 
-      this.highlightScroll(this.current_index);
+      // 边界修正
+      const len = this.groupedChildrenHeightArr.length
+      if (this.group_cursor < 0) this.group_cursor = 0
+      if (this.group_cursor >= len) this.group_cursor = len - 1
 
-
+      const targetGroup = this.groupedChildrenHeightArr[this.group_cursor]
+      // 滚到组的起始消息(整段向上推,ASK 在上、AI 在下,看起来跟聊天一致)
+      this.adjustScroll(targetGroup.start)
+      this.highlightScroll(targetGroup.start)
     },
     UpdateWindowUI(){
       return new Promise((resolve, reject) => {
@@ -588,15 +596,20 @@ export default{
       })
     },
     UpdatePointerPosition() {
-      // 控制计算
       const container = this.$refs.render_container;
-      const targetElement = container.children[0];
 
-      if (targetElement) {
-        const targetRect = targetElement.getBoundingClientRect();
-        const offsetTop = Math.abs(targetRect.top - this.containerRect.top);
-        const percentage = offsetTop / this.scrollHeightSum * 100;
-        this.scrollTopRate = `${percentage}%`;
+      // ── 侧条游标定位 ──
+      // 修复: 原写法用 container.children[0] 的位置算"距顶偏移",但 children[0]
+      // 永远是同一个节点,滚动越深它的 top 越负,公式就越怪;
+      // 且容器是自己(不是父),不能拿 children[0] 当锚点。
+      // 正确表达:"滚动条已滚动的距离 占 可滚动距离 的百分比"。
+      // 内容不足一屏时 scrollHeight <= clientHeight,不可滚动,游标置 0%。
+      const scrollable = container.scrollHeight - container.clientHeight
+      if (scrollable > 0) {
+        const ratio = (container.scrollTop / scrollable) * 100
+        this.scrollTopRate = `${Math.max(0, Math.min(100, ratio))}%`
+      } else {
+        this.scrollTopRate = '0%'
       }
 
       let last_ai_el = container.children[this.ai_res.length - 1]; // 最后一个ai元素
@@ -636,6 +649,7 @@ export default{
     },
     UpdateChildrenHeightArr(){
       this.childrenHeightArr.length = 0
+      this.groupedChildrenHeightArr.length = 0
       const container = this.$refs.render_container;
 
       let height_arr = []
@@ -648,7 +662,7 @@ export default{
           return;
         }
         const targetElement = container.children[index];
-      
+
         if (targetElement) {
           // 获取目标元素的边界矩形
           const targetRect = targetElement.getBoundingClientRect();
@@ -659,10 +673,10 @@ export default{
       })
       this.scrollHeightSum = height_sum  //更新求和高度
       this.classifyRateArr = [0,0,0]
-      
+
       height_arr.forEach((h, index)=>{
         const ai_type = this.ai_res[index].type
-        const ai_hrate = h/height_sum*100 
+        const ai_hrate = h/height_sum*100
         this.childrenHeightArr.push({
           hindex:index,
           hrate:ai_hrate,
@@ -680,6 +694,60 @@ export default{
         }
       })
 
+      // ── 分组:ASK + 紧邻的 AI 合为一组;其他各自单组 ──
+      // 分组规则在 ai_res 索引层面跑,高度比例按组聚合求和。
+      // 单一 ASR 或 ANNO 也作为一个独立组(便于点击/侧键跳转)。
+      let i = 0
+      while (i < this.ai_res.length) {
+        const cur = this.ai_res[i]
+        const curType = cur && cur.type ? cur.type : ''
+        let start = i
+        let end = i + 1  // 半开区间 [start, end)
+        let groupType = 'OTHER'
+
+        if (curType.includes('LIST_TYPE_ASK')) {
+          // 一组最多 = ASK + 紧邻的 1 条 AI。
+          // 关键:不能无脑吞掉后续所有 AI — 后续 AI 很可能是另一次划词回复
+          // (callAIResponse 触发,前面没 ASK),必须留给下一轮扫描自己独立成组。
+          groupType = 'ASK_AI'
+          if (i + 1 < this.ai_res.length
+              && this.ai_res[i + 1].type
+              && this.ai_res[i + 1].type.includes('LIST_TYPE_AI')) {
+            end = i + 2
+          } else {
+            end = i + 1
+          }
+        } else if (curType.includes('LIST_TYPE_AI')) {
+          groupType = 'AI'
+          end = i + 1
+        } else if (curType.includes('LIST_TYPE_ANNO')) {
+          groupType = 'ANNO'
+          end = i + 1
+        }
+
+        let hrate = 0
+        for (let k = start; k < end; k++) hrate += this.childrenHeightArr[k].hrate
+        this.groupedChildrenHeightArr.push({
+          start,
+          end,
+          hrate,
+          groupType,
+        })
+        i = end
+      }
+    },
+    MapGroupColor(group){
+      // 整段 ASK + AI 在侧条上一律显示为绿色(统一一个问答组)
+      if (group.groupType === 'ASK_AI') {
+        return 'rgba(86, 145, 69, 0.741)'
+      }
+      if (group.groupType === 'AI') {
+        return 'rgb(122, 155, 205)'
+      }
+      if (group.groupType === 'ANNO') {
+        return '#AC4848'
+      }
+      return '#cccccc'
     },
     MapHeadBarBackgroundColor(headtype){
       if(headtype.includes('LIST_TYPE_ASK')){
@@ -878,7 +946,7 @@ export default{
       })
 
     },
-    async handleAiChange(mode, index, content){
+    async handleAiChange(mode, index, content, {skipScroll = false} = {}){
       // 1) 先更新本地数组(乐观更新),保证 UI 即时响应
       if(mode==='ADD'){
         this.ai_res.push(content)
@@ -933,6 +1001,7 @@ export default{
       }
 
       this.UpdateWindowUI().then(()=>{
+        if (skipScroll) return
         if (
           (mode === 'ADD' && content && !content.type.includes("LIST_TYPE_ANNO")) ||
           (mode === 'SET' && content && !content.type.includes("LIST_TYPE_ANNO")) ||
@@ -953,14 +1022,16 @@ export default{
             this.ai_res = res.data
             this.wait_text = 'WAIT'
             this.waiting = false
-            
+
             //自动跳转
             if(this.ai_res){
-              
+
               this.UpdateWindowUI().then(()=>{
                 this.adjustScroll()
                 this.loadRangeHighlight()
                 this.current_index = this.ai_res.length-1
+                // 初始化组游标到末尾(侧键向上跳才合理)
+                this.group_cursor = Math.max(0, this.groupedChildrenHeightArr.length - 1)
                 this.$refs.blurTextarea.focus()
               })
 
@@ -1298,7 +1369,7 @@ export default{
         text: this.askContent,
         dt: this.getFormattedDate(),
         hl: null,
-      })
+      }, {skipScroll: true})
 
       // ── Push AI 占位 ──
       // token_count 必须在初始化时声明,后续 stream 结束时才能可靠地
@@ -1315,7 +1386,7 @@ export default{
       this.placeholderIndex = this.ai_res.length - 1
       this.waiting = true
       this.$nextTick(() => {
-        this.UpdateWindowUI().then(() => this.adjustScroll(this.placeholderIndex))
+        this.UpdateWindowUI().then(() => this.adjustScroll(this.placeholderIndex - 1))
       })
 
       // ── 发送请求 ──
@@ -1334,6 +1405,9 @@ export default{
           // 把 token_count 一并写回占位;否则气泡下方不显示 token 统计。
           // aiService.chat() 已经返回了 usage.total_tokens,不能丢。
           const tokenCount = usage?.total_tokens ?? null
+          // skipScroll:true ── 占位 AI 在 push 时已经滚到位(adjustScroll(this.placeholderIndex - 1)),
+          // stream 完成的 SET 不应再触发 adjustScroll 把 AI 顶到顶上去,
+          // 否则会再次强行滚动覆盖用户当前查看位置。
           this.handleAiChange('SET', this.placeholderIndex, {
             type: 'LIST_TYPE_AI',
             text: finalText,
@@ -1341,7 +1415,7 @@ export default{
             hl: this.chosen_hldata,
             img: '',
             token_count: tokenCount,
-          })
+          }, { skipScroll: true })
           this.waiting = false
           this.placeholderIndex = -1
           window.focus()
@@ -1409,7 +1483,9 @@ export default{
           placeholder.dt = this.getFormattedDate()
           placeholder.hl = this.chosen_hldata
           if (usage?.total_tokens != null) placeholder.token_count = usage.total_tokens
-          this.handleAiChange('SET', this.placeholderIndex, placeholder)
+          // skipScroll:true ── 占位 AI 在 push 时已经 adjustScroll(placeholderIndex)
+          // 滚到位,stream 完成的 SET 不应再触发滚动把 AI 顶上去。
+          this.handleAiChange('SET', this.placeholderIndex, placeholder, { skipScroll: true })
           this.waiting = false
           this.placeholderIndex = -1
           this.cancelTokenSource = null
@@ -1446,6 +1522,9 @@ export default{
 
       if (targetElement) {
         this.current_index = index
+        // 同步更新 group_cursor:找到 index 所在的组
+        const gi = this.groupedChildrenHeightArr.findIndex(g => index >= g.start && index < g.end)
+        if (gi !== -1) this.group_cursor = gi
         const targetRect = targetElement.getBoundingClientRect();
         const offsetTop = targetRect.top - this.containerRect.top;
         this.can_current_index_change = false
