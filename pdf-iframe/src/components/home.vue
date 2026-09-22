@@ -104,7 +104,8 @@
 
           <!-- GPT显示内容 -->
           <div ref="render_container" class="gpt-render" @scroll="UpdatePointerPosition"
-            @auxclick="handleMouseSideButton">
+            @auxclick="handleMouseSideButton"
+            @mouseup="handleSideButtonCapture"> <!-- Chrome 把 back/forward 行为绑在 mouseup 鼠标抬起时捕获 -->
             <div v-for="(item, index) in ai_res" ref="render" :key="index"
               style="display: block; background-color: transparent;">
               <gptRenderUnit style="width: 100%;" :content="item.text" :datetime="item.dt" :hldata="item.hl"
@@ -270,7 +271,7 @@ export default{
   mounted() {
     const container = this.$refs.render_container;
     this.containerRect = container.getBoundingClientRect();
-    
+
     window.addEventListener('resize', () => {
       const container = this.$refs.render_container;
       if (container) {
@@ -548,6 +549,14 @@ export default{
       // 滚到组的起始消息(整段向上推,ASK 在上、AI 在下,看起来跟聊天一致)
       this.adjustScroll(targetGroup.start)
       this.highlightScroll(targetGroup.start)
+    },
+    handleSideButtonCapture(event) {
+      if (event.button === 3 || event.button === 4) {
+        event.preventDefault()
+        event.stopPropagation()
+        // stopImmediatePropagation 防止同一节点上其他监听器也被触发
+        if (event.stopImmediatePropagation) event.stopImmediatePropagation()
+      }
     },
     UpdateWindowUI(){
       return new Promise((resolve, reject) => {
@@ -1027,9 +1036,15 @@ export default{
             if(this.ai_res){
 
               this.UpdateWindowUI().then(()=>{
-                this.adjustScroll()
+                // 跳转到最后一组的开头(而不是最后一条消息)
+                // 原因:最后一组通常是 ASK + AI 的问答,用户期望看到的是用户气泡置顶。
+                // 之前 adjustScroll() 不传参默认跳到 ai_res 最后一条,会把 AI 气泡顶到屏幕顶部,
+                // 用户得再往上滚才能看到自己的提问,体验割裂。
+                const lastGroup = this.groupedChildrenHeightArr[this.groupedChildrenHeightArr.length - 1]
+                const jumpTo = lastGroup ? lastGroup.start : this.ai_res.length - 1
+                this.adjustScroll(jumpTo)
                 this.loadRangeHighlight()
-                this.current_index = this.ai_res.length-1
+                this.current_index = jumpTo
                 // 初始化组游标到末尾(侧键向上跳才合理)
                 this.group_cursor = Math.max(0, this.groupedChildrenHeightArr.length - 1)
                 this.$refs.blurTextarea.focus()
