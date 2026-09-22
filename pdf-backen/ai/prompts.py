@@ -93,13 +93,13 @@ def buildUserActionText(ask_content: str, quotes: list[dict], quote_content: str
     由调用方根据是否有 image 决定。
     """
     if not quotes:
-        return f"根据用户阅读过的文段，解决询问【{ask_content}】"
+        return f"{ask_content}"
 
     quote_lines = "\n".join(f"{i + 1}.{q.get('quote_msg', '')}" for i, q in enumerate(quotes))
     return (
-        f"针对用户引用的内容：\n{quote_lines}\n\n"
+        f"用户引用的内容：\n{quote_lines}\n\n"
         f"用户引用的解释：{quote_content}\n\n"
-        f"解决询问【{ask_content}】"
+        f"用户的询问【{ask_content}】"
     )
 
 

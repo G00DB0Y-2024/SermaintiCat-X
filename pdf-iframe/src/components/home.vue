@@ -241,8 +241,7 @@ export default{
       scrollHeightSum:1,
 
       containerRect:null,
-      current_index:0,  //追踪索引(指向 ai_res 中的某一条消息)
-      group_cursor:0,   //鼠标侧键用的"组"游标(指向 groupedChildrenHeightArr 的下标)
+      current_index:0,  //追踪索引(指向 ai_res 中的某一条消息);侧键气泡级跳转也基于此游标
       can_current_index_change:true, //是否允许当前索引改变
       lastBottomRate:1, //最后一个元素的底部距离容器底部占容器百分比
       imageShowFlag: false, //图片显示标志
@@ -524,24 +523,23 @@ export default{
     handleMouseSideButton(event){
       if(!this.can_current_index_change)
         return
-      if (this.groupedChildrenHeightArr.length === 0) return
+      if (this.ai_res.length === 0) return
 
-      if (event.button === 3) {  // 后退侧键(向下走)
-        this.group_cursor++
-      } else if (event.button === 4) {  // 前进侧键(向上走)
-        this.group_cursor--
+      // 气泡级跳转:逐条消息走(对比旧的"组级 group_cursor",
+      // 旧行为会一次跨过 ASK+AI 两条,用户容易错过单条 AI 回复)。
+      if (event.button === 3) {  // 后退侧键(向下走,看更早的对话)
+        this.current_index--
+      } else if (event.button === 4) {  // 前进侧键(向上走,看更新的对话)
+        this.current_index++
       } else {
         return
       }
       // 边界修正
-      const len = this.groupedChildrenHeightArr.length
-      if (this.group_cursor < 0) this.group_cursor = 0
-      if (this.group_cursor >= len) this.group_cursor = len - 1
+      if (this.current_index < 0) this.current_index = 0
+      if (this.current_index >= this.ai_res.length) this.current_index = this.ai_res.length - 1
 
-      const targetGroup = this.groupedChildrenHeightArr[this.group_cursor]
-      // 滚到组的起始消息(整段向上推,ASK 在上、AI 在下,看起来跟聊天一致)
-      this.adjustScroll(targetGroup.start)
-      this.highlightScroll(targetGroup.start)
+      this.adjustScroll(this.current_index)
+      this.highlightScroll(this.current_index)
     },
     handleSideButtonCapture(event) {
       if (event.button === 3 || event.button === 4) {
@@ -1025,8 +1023,8 @@ export default{
                 this.adjustScroll(jumpTo)
                 this.loadRangeHighlight()
                 this.current_index = jumpTo
-                // 初始化组游标到末尾(侧键向上跳才合理)
-                this.group_cursor = Math.max(0, this.groupedChildrenHeightArr.length - 1)
+                // 侧键初始化到末尾(向下走才能看到更早的消息,符合直觉)
+                this.current_index = Math.max(0, this.ai_res.length - 1)
                 this.$refs.blurTextarea.focus()
               })
 
@@ -1477,9 +1475,6 @@ export default{
 
       if (targetElement) {
         this.current_index = index
-        // 同步更新 group_cursor:找到 index 所在的组
-        const gi = this.groupedChildrenHeightArr.findIndex(g => index >= g.start && index < g.end)
-        if (gi !== -1) this.group_cursor = gi
         const targetRect = targetElement.getBoundingClientRect();
         const offsetTop = targetRect.top - this.containerRect.top;
         this.can_current_index_change = false
