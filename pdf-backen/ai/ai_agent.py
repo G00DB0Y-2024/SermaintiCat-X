@@ -96,14 +96,14 @@ def _set_agent_memory_cache(md: str) -> None:
 # ═══════════════════════════════════════════════════════════════════════
 ASK_TRACK_FILE  = os.path.join(BASE_DIR, "ai", "memory", "Crystal_track_ask.json")
 LOAD_TRACK_FILE = os.path.join(BASE_DIR, "ai", "memory", "Crystal_track_load.json")
-MAX_ASK_TRACK  = 20
-MAX_LOAD_TRACK = 10
+MAX_ASK_TRACK  = 15
+MAX_LOAD_TRACK = 5
 
 # ── Ask 上下文拼装配比 (本文 vs 全局, 各占上限, 去重后严格按占比截取) ──
 ASK_LOCAL_LIMIT  = 10   # 本论文 Ask 历史最多取 10 对 (user+assistant)
-ASK_GLOBAL_LIMIT = 10   # 全局 track-ask 最多补充 10 对
-LOAD_LOCAL_LIMIT  = 5   # 本论文 Load 历史最多取 5 对
-LOAD_GLOBAL_LIMIT = 5   # 全局 track-load 最多补充 5 对
+ASK_GLOBAL_LIMIT = 5   # 全局 track-ask 最多补充 10 对
+LOAD_LOCAL_LIMIT  = 3   # 本论文 Load 历史最多取 5 对
+LOAD_GLOBAL_LIMIT = 2   # 全局 track-load 最多补充 5 对
 
 _ask_track_list:  list[dict] | None = None
 _load_track_list: list[dict] | None = None
@@ -284,7 +284,11 @@ def _load_paper_history(fp: str, mode: str, limit: int) -> list[dict]:
             continue
         content = e.get("content")
         if isinstance(content, str):
-            filtered.append({"role": type_map[t], "content": content})
+            filtered.append({
+                "role": type_map[t],
+                "content": content,
+                "ts": e.get("ts"),  # 保留 ts 用于后续去重
+            })
 
     # 取最后 limit*2 条（最近 limit 轮），已正序
     tail = filtered[-(limit * 2):]
@@ -307,9 +311,9 @@ def _build_flattened_context(
     本论文 history + 全局 track 合并 -> 去重 -> 时间序展平 -> 占比截取。
 
     输入:
-      paper_history: [{role, content}, ...]   来自 _load_paper_history, 已正序
+      paper_history: [{role, content, ts}, ...]   来自 _load_paper_history, 已正序, 保留 ts 字段
       global_track:  [{ts, ts_str, pdf_fp, user, assistant, (chosen_text)?}, ...] 来自 _get_track, 已正序
-      pdf_fp:        当前论文 fp, 用于 paper_history 全部视为同一 fp
+      pdf_fp:        当前论文 fp, 用于去重 key
       local_limit:   本论文最多取 N 对 (user+assistant)
       global_limit:  全局 track 最多补充 N 对
       is_load:       True=Load 轨 (track 字段名为 chosen_text/assistant),
@@ -320,8 +324,8 @@ def _build_flattened_context(
       严格遵循: 本论文先按最近 local_limit 对取用, track 再按最近 global_limit 对补足。
 
     去重:
-      - 本论文 history 不携带 ts, 按 (pdf_fp, content_hash) 占位, 与 track 的 (pdf_fp, ts) key 空间不重叠
-      - 全局 track 用 (pdf_fp, ts) 严格去重
+      - 本论文 history 和全局 track 都用 (pdf_fp, ts) 作为去重 key
+      - 同一轮对话同时存在于 history 和 track 时，只会保留一条
     """
     flat: list[dict] = []
     seen: set[tuple[str, int]] = set()
@@ -329,17 +333,14 @@ def _build_flattened_context(
     # 1) 本论文 history: 取最后 local_limit 对 (即 local_limit*2 条)
     #    paper_history 严格 user/assistant 交替, 直接切片即可, 不需要 pending_user
     local_msgs = paper_history[-(local_limit * 2):]
-    for i, msg in enumerate(local_msgs):
+    for msg in local_msgs:
         role = msg.get("role")
         content = msg.get("content", "")
-        # 防悬空: history 末尾若是孤立 user (assistant 缺位) 也要跳过
-        # 通过成对占位: 仅在 i+1 < len 且下一条是 assistant 时整体加入
-        # 已正序假设, 但保险起见做相邻校验
         flat.append({"role": role, "content": content})
-
-    # paper_history 占位去重 key, 用 (fp, hash(content)) 防止与 track 冲突
-    for i, msg in enumerate(local_msgs):
-        seen.add((pdf_fp, i + 1))  # 用占位索引, 不参与 track 严格去重
+        # 用 ts 作为去重 key，与 track 保持一致
+        ts = msg.get("ts")
+        if ts is not None:
+            seen.add((pdf_fp, ts))
 
     # 2) 全局 track: 按顺序补足, 去重 key 用 (entry.pdf_fp, entry.ts)
     global_pairs = 0
