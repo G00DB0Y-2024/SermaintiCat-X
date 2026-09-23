@@ -17,16 +17,15 @@ import asyncio
 import json
 import os
 import sys
-import time
 from typing import TypedDict, Optional, Any
 
 import httpx
 
 from .ai_models import AiAskReq, AiLoadReq, AiResp
 from .prompts import (
-    buildAskMessages, buildLoadMessages,
+    buildAskMessages, buildLoadMessages, buildGlobalTrackContext,
     MEMORY_UPDATE_SYSTEM, buildMemoryUpdateUserPrompt,
-    get_current_time_context,
+    get_current_time_context, now_ms, format_dt_second, format_dt_minute,
 )
 from utils.log import debug
 
@@ -51,13 +50,11 @@ BASE_DIR = _get_base_dir()
 SAVE_DIR = os.path.join(BASE_DIR, "save")
 os.makedirs(SAVE_DIR, exist_ok=True)
 
-# Crystal_mem 文件名
-CRYSTAL_MEMORY_FILE = os.path.join(BASE_DIR, "ai", "memory", "Crystal_memory.md")
 
-# Crystal_memory.md 内存缓存。
-# 避免每次 /ai/ask 或 /ai/load 都重新打开文件读磁盘。
-# 后台任务 _update_crystal_memory_async 写文件成功后, 调用 _invalidate_agent_memory_cache() 同步刷新。
-# 这样既快又保持一致性: 如果后台写失败, 下次 _get_agent_memory() 会从磁盘回读(可能拿到上次的内容)。
+# ═══════════════════════════════════════════════════════════════════════
+# Crystal_memory.md (全局记忆) — 缓存 + 读写函数
+# ═══════════════════════════════════════════════════════════════════════
+CRYSTAL_MEMORY_FILE = os.path.join(BASE_DIR, "ai", "memory", "Crystal_memory.md")
 _agent_memory_cache: str | None = None
 
 
@@ -92,6 +89,93 @@ def _set_agent_memory_cache(md: str) -> None:
     """后台任务写完文件后调用, 同步刷新缓存, 避免下个请求读到陈旧数据。"""
     global _agent_memory_cache
     _agent_memory_cache = md
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Crystal_track (跨论文 Ask 全局追踪) — 缓存 + 读写函数
+# ═══════════════════════════════════════════════════════════════════════
+CRYSTAL_TRACK_FILE = os.path.join(BASE_DIR, "ai", "memory", "Crystal_track.json")
+MAX_TRACK_SIZE = 20
+_agent_track_list: list[dict] | None = None      # None = 未加载
+_agent_track_dirty: bool = False                  # True = 有 append 待写盘
+
+
+def _get_track() -> list[dict]:
+    """
+    读 agent_track 缓存 (懒加载)。
+    首次调用时同步加载磁盘内容, 返回内部 cache 引用 (调用方不应原地修改!)。
+    如果要追加请用 _append_track()。
+    """
+    global _agent_track_list
+    if _agent_track_list is None:
+        _ensure_memory_dir()
+        if os.path.exists(CRYSTAL_TRACK_FILE):
+            try:
+                with open(CRYSTAL_TRACK_FILE, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if isinstance(data, list):
+                    _agent_track_list = data[-MAX_TRACK_SIZE:]
+                else:
+                    _agent_track_list = []
+            except (json.JSONDecodeError, OSError):
+                _agent_track_list = []
+        else:
+            _agent_track_list = []
+    return _agent_track_list
+
+
+def _set_track_cache(track: list[dict]) -> None:
+    """外部 (如 reload/清空) 同步刷新缓存。"""
+    global _agent_track_list, _agent_track_dirty
+    _agent_track_list = list(track)
+    _agent_track_dirty = True  # 缓存与磁盘不一定一致, 标 dirty 待下次 flush
+
+
+def _append_track(entry: dict) -> None:
+    """
+    追加一条 Ask 记录到 cache, FIFO 裁剪到最多 20 条。
+
+    注意: 此函数只改内存 cache + 标记 dirty, 不立即写盘!
+    写盘由 flush_track_node 在对话结束后统一执行 (避免高频小 I/O)。
+
+    异常静默: track 是锦上添花, 不影响主链路。
+    """
+    global _agent_track_dirty
+    try:
+        track = list(_get_track())  # 复制一份, 避免外部拿到引用后被我们原地改
+        track.append(entry)
+        # FIFO 裁剪到最近 20 条 (防止 cache 无限增长)
+        if len(track) > MAX_TRACK_SIZE:
+            track = track[-MAX_TRACK_SIZE:]
+        _set_track_cache(track)
+        _agent_track_dirty = True
+        debug(f"[crystal_track] APPEND cached: fp={entry.get('pdf_fp', '')[:8]} total={len(track)}")
+    except Exception as e:  # noqa: BLE001 — track 锦上添花, 不可阻塞主链路
+        debug(f"[crystal_track] APPEND FAIL (cache): {e}")
+
+
+def _flush_track_to_disk() -> None:
+    """
+    把内存 cache 写回 Crystal_track.json (覆盖式)。
+    仅在 dirty=True 时执行 — 减少无谓写盘。
+    异常静默: track 是锦上添花, 写盘失败不应影响主链路 (下次冷启动时 cache 会回读旧数据)。
+    """
+    global _agent_track_dirty
+    if not _agent_track_dirty:
+        return
+    try:
+        _ensure_memory_dir()
+        track = _get_track()
+        # 再裁一次, 防止历史 cache 异常增长
+        track_to_write = track[-MAX_TRACK_SIZE:]
+        with open(CRYSTAL_TRACK_FILE, "w", encoding="utf-8") as f:
+            json.dump(track_to_write, f, ensure_ascii=False)
+        _agent_track_dirty = False
+        debug(f"[crystal_track] FLUSH ok: total={len(track_to_write)}")
+    except OSError as e:
+        debug(f"[crystal_track] FLUSH FAIL: {e}")
+
+
 
 # DeepSeek API 需要在 base url 后拼 /chat/completions
 DEEPSEEK_MARKER = "deepseek.com"
@@ -151,6 +235,8 @@ class PaperAIState(TypedDict):
     paper_history: 当前 pdf_fp 最近 N 轮 paper_history (Ask 20 / Load 10)
     final_answer:  llm_call 返回的最终 content
     usage:         上游 LLM 的 usage 统计
+    dt:            服务端时间字符串 (北京时区, 秒级, 来自 now_ms 单源时间),
+                   通过 AiResp.dt 透传给前端, 保证前后端时间一致。
     """
     req: Any  # AiAskReq | AiLoadReq
     messages: list[dict]
@@ -158,6 +244,7 @@ class PaperAIState(TypedDict):
     paper_history: list[dict]
     final_answer: str
     usage: dict
+    dt: str
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -283,7 +370,10 @@ async def compose_messages_node(state: PaperAIState) -> dict:
     """
     根据 req 类型 (Ask / Load) 调用 buildAskMessages / buildLoadMessages 组装 messages。
     Ask 模式额外把 Crystal_memory.md 内容追加到 system prompt 末尾。
-    Load 模式不注入 agent_memory。
+    Ask 模式还会把跨论文全局 track (Crystal_track.json, 最近 20 条)
+    作为 assistant 角色消息注入 (在 paper_history 之后、本轮 user 之前),
+    让 LLM 在 assistant 位置上感知全局提问脉络。
+    Load 模式不注入 agent_memory 也不注入 track。
     """
     req = state["req"]
     history = state.get("paper_history") or []
@@ -292,12 +382,28 @@ async def compose_messages_node(state: PaperAIState) -> dict:
     # 动态生成时间上下文
     time_context = get_current_time_context()
 
+    # 注入 Ask 模式的 track (作为 assistant 角色的对话历史消息 ——
+    # 注入位置放在 paper_history 之后、本轮 user 之前, 保持历史对话连贯性)
+    track_block = ""
+    if isinstance(req, AiAskReq):
+        track = _get_track()
+        if track:
+            track_block = buildGlobalTrackContext(track)
+
     if isinstance(req, AiAskReq):
         messages = buildAskMessages(req, history, time_context)
     elif isinstance(req, AiLoadReq):
         messages = buildLoadMessages(req, history, time_context)
     else:
         raise ValueError(f"Unknown req type: {type(req)}")
+
+    # Ask 模式把 track 作为 assistant 消息插入 (在 paper_history 之后、本轮 user 之前)
+    if track_block:
+        # messages 结构: [system, ...paper_history, user(本轮)]
+        # 插入位置: paper_history 末尾之后、本轮 user 之前
+        # 即 -2 位置 (因为末尾是本轮 user)
+        insert_idx = len(messages) - 1
+        messages.insert(insert_idx, {"role": "assistant", "content": track_block})
 
     # Ask 模式才注入 agent memory — 拼到 system 消息末尾
     if isinstance(req, AiAskReq) and agent_mem:
@@ -314,6 +420,8 @@ async def llm_call_node(state: PaperAIState) -> dict:
     调上游 LLM。模型选择由 ai_config 决定:
       - AiAskReq + image_base64 非空 -> vision_model
       - 否则 -> model (普通 ask / load)
+
+    同时产出服务端时间 (单源 now_ms()) → state.dt, 最终透传给前端。
     """
     req = state["req"]
     messages = state["messages"]
@@ -325,7 +433,11 @@ async def llm_call_node(state: PaperAIState) -> dict:
         vision_model=is_vision,
     )
 
-    return {"final_answer": content, "usage": usage}
+    return {
+        "final_answer": content,
+        "usage": usage,
+        "dt": format_dt_second(now_ms()),
+    }
 
 
 async def save_paper_memory_node(state: PaperAIState) -> dict:
@@ -352,9 +464,9 @@ async def save_paper_memory_node(state: PaperAIState) -> dict:
         except (json.JSONDecodeError, OSError):
             pass
 
-    now_ms = int(time.time() * 1000)
-    history.append({"role": "user", "content": user_text, "ts": now_ms})
-    history.append({"role": "assistant", "content": answer, "ts": now_ms + 1})
+    now_ms_paper = now_ms()
+    history.append({"role": "user", "content": user_text, "ts": now_ms_paper})
+    history.append({"role": "assistant", "content": answer, "ts": now_ms_paper + 1})
 
     try:
         with open(path, "w", encoding="utf-8") as f:
@@ -368,8 +480,8 @@ async def save_paper_memory_node(state: PaperAIState) -> dict:
 
 async def update_agent_memory_node(state: PaperAIState) -> dict:
     """
-    Ask 模式: 异步触发, 用 state.paper_history 作为更新参考(包含上次 Ask 到本轮的所有轨迹),
-              用本轮 req.ask + final_answer 作为核心更新依据。
+    Ask 模式: 异步触发, 用全局 track (Crystal_track.json) 作为辅助上下文,
+              加上本轮 req.ask + final_answer 作为核心更新依据。
     Load 模式: 不更新 Crystal_memory.md(划词不维护持久化记忆)。
     """
     req = state["req"]
@@ -377,20 +489,32 @@ async def update_agent_memory_node(state: PaperAIState) -> dict:
 
     if isinstance(req, AiAskReq):
         user_msg = req.ask
-        # paper_history 已经在 load_paper_history_node 加载过 (Ask = 20 轮),
-        # 天然覆盖"上次 Ask 到这次 Ask"之间的所有对话轨迹
-        intermediate_history = state.get("paper_history") or []
         # 异步执行, 不 await
         task = asyncio.create_task(
-            _update_crystal_memory_async(user_msg, answer, intermediate_history)
+            _update_crystal_memory_async(user_msg, answer)
         )
         debug(
             f"[crystal_memory] scheduled [ask]: "
             f"user_len={len(user_msg)} asst_len={len(answer)} "
-            f"intermediate_rounds={len(intermediate_history)//2} task_id={id(task)}"
+            f"task_id={id(task)}"
         )
+
+        # 同步追加到全局 track cache (Ask 完成后, 立即追加一条跨论文记录)
+        # 注意: 只改内存 cache + 标 dirty, 不立即写盘!
+        # 写盘由 flush_track_node 在对话结束后统一执行 (避免高频小 I/O)。
+        try:
+            ts = now_ms()
+            _append_track({
+                "ts": ts,                                                  # 毫秒级 Unix 时间戳 (单源 now_ms())
+                "ts_str": format_dt_second(ts),                            # 秒级可读: YYYY-MM-DD HH:MM:SS (北京)
+                "pdf_fp": req.pdf_fp,
+                "user": user_msg[:200],
+                "assistant": answer[:200],
+            })
+        except Exception as e:
+            debug(f"[crystal_track] FAIL (non-fatal): {e}")
     else:
-        # Load 模式: 不维护 Crystal_memory.md
+        # Load 模式: 不维护 Crystal_memory.md, 也不追加 track
         debug("[crystal_memory] skipped [load]")
 
     return {}
@@ -399,11 +523,10 @@ async def update_agent_memory_node(state: PaperAIState) -> dict:
 async def _update_crystal_memory_async(
     user_msg: str,
     assistant_msg: str,
-    intermediate_history: list[dict],
 ) -> None:
     """
-    后台任务: 读 Crystal_memory.md, 把 intermediate_history (上次 Ask 到本轮的完整对话轨迹)
-    + 本轮对话一起喂 LLM, 写回。
+    后台任务: 读 Crystal_memory.md, 把全局 track (Crystal_track.json, 最近 20 条
+    跨论文 Ask 记录) + 本轮对话一起喂 LLM, 写回。
 
     复用 ai_config 中的 api_key / api_url / model。
 
@@ -426,11 +549,14 @@ async def _update_crystal_memory_async(
             except OSError:
                 current = ""
 
+        # 取全局 track 作为辅助上下文 (取代原来的 intermediate_history)
+        track = _get_track()
+
         new_md = await _call_memory_update_llm(
             current,
             user_msg,
             assistant_msg,
-            intermediate_history,
+            track,
         )
         if new_md:
             with open(CRYSTAL_MEMORY_FILE, "w", encoding="utf-8") as f:
@@ -453,13 +579,23 @@ async def _call_memory_update_llm(
     current_md: str,
     user_msg: str,
     assistant_msg: str,
-    intermediate_history: list[dict],
+    track: list[dict] | None = None,
 ) -> str:
-    """调 LLM 让它合并更新 Crystal_mem.md, 返回新的 Markdown 文本。配置从 ai_config 读取。"""
+    """
+    调 LLM 让它合并更新 Crystal_mem.md, 返回新的 Markdown 文本。配置从 ai_config 读取。
+
+    注入精确到秒的时间戳到 user prompt (buildMemoryUpdateUserPrompt 的 current_timestamp 参数),
+    让 LLM 在修改或新增条目末尾追加时间戳。
+
+    track 提供跨论文全局上下文 (替代原来的 intermediate_history)。
+    """
+    ts = now_ms()
+    current_time_str = format_dt_second(ts)
+
     messages = [
         {"role": "system", "content": MEMORY_UPDATE_SYSTEM()},
         {"role": "user", "content": buildMemoryUpdateUserPrompt(
-            current_md, user_msg, assistant_msg, intermediate_history
+            current_md, user_msg, assistant_msg, current_time_str, track
         )},
     ]
     content, _ = await _call_llm(messages=messages, vision_model=False)
@@ -470,11 +606,23 @@ async def _call_memory_update_llm(
 # Graph 构建
 # ═══════════════════════════════════════════════════════════════════════
 
+async def flush_track_node(state: PaperAIState) -> dict:
+    """
+    对话结束后的最后一个节点: 把 track 缓存一次性写盘 (覆盖式)。
+
+    之前 update_agent_memory_node 用 _append_track 累积到内存 cache +
+    标 dirty; 这里统一做一次 flush_track_to_disk(), 避免每次 Ask 都打开
+    Crystal_track.json 写盘 (高频小 I/O 浪费)。
+    """
+    _flush_track_to_disk()
+    return {}
+
+
 def build_graph():
     """
     构建 LangGraph StateGraph:
       load_agent_memory -> load_paper_history -> compose_messages
-      -> llm_call -> save_paper_memory -> update_agent_memory
+      -> llm_call -> save_paper_memory -> update_agent_memory -> flush_track
     """
     # LangGraph 在新版是 langgraph.graph.StateGraph
     # 这里延迟 import, 避免冷启动开销
@@ -487,6 +635,7 @@ def build_graph():
     g.add_node("llm_call", llm_call_node)
     g.add_node("save_paper_memory", save_paper_memory_node)
     g.add_node("update_agent_memory", update_agent_memory_node)
+    g.add_node("flush_track", flush_track_node)
 
     g.set_entry_point("load_agent_memory")
     g.add_edge("load_agent_memory", "load_paper_history")
@@ -494,7 +643,8 @@ def build_graph():
     g.add_edge("compose_messages", "llm_call")
     g.add_edge("llm_call", "save_paper_memory")
     g.add_edge("save_paper_memory", "update_agent_memory")
-    g.add_edge("update_agent_memory", END)
+    g.add_edge("update_agent_memory", "flush_track")
+    g.add_edge("flush_track", END)
 
     return g.compile()
 
@@ -522,6 +672,7 @@ async def run_ask(req: AiAskReq) -> dict:
         "paper_history": [],
         "final_answer": "",
         "usage": {},
+        "dt": "",
     }
     graph = _get_graph()
     result = await graph.ainvoke(initial)
@@ -537,6 +688,7 @@ async def run_load(req: AiLoadReq) -> dict:
         "paper_history": [],
         "final_answer": "",
         "usage": {},
+        "dt": "",
     }
     graph = _get_graph()
     result = await graph.ainvoke(initial)

@@ -61,6 +61,7 @@ async def ai_ask(req: AiAskReq) -> AiResp:
         return AiResp(
             content=result.get("final_answer", ""),
             usage=result.get("usage") or None,
+            dt=result.get("dt", ""),
         )
     except HTTPException:
         raise
@@ -82,6 +83,7 @@ async def ai_load(req: AiLoadReq) -> AiResp:
         return AiResp(
             content=result.get("final_answer", ""),
             usage=result.get("usage") or None,
+            dt=result.get("dt", ""),
         )
     except HTTPException:
         raise

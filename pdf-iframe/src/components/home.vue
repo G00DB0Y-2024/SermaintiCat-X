@@ -1369,10 +1369,12 @@ export default{
           // 占位 AI 推送时已经滚到 placeholderIndex - 1(ASK 位置),流式期间
           // 用户已经在看这条 AI 在原位渲染;流结束这一次 SET 是最后帧,
           // 滚到 placeholderIndex(AI 自身)正好把完整 AI 置顶,体验连贯。
+          // AI 气泡 dt 优先使用后端服务端时间 (data.dt, 北京时区, 单源),
+          // 保证前后端时间一致; 后端未返回时降级到前端格式。
           this.handleAiChange('SET', this.placeholderIndex, {
             type: 'LIST_TYPE_AI',
             text: finalText,
-            dt: this.getFormattedDate(),
+            dt: data.dt || this.getFormattedDate(),
             hl: this.chosen_hldata,
             img: '',
             token_count: tokenCount,
@@ -1430,7 +1432,9 @@ export default{
         .then(({ data }) => {
           const finalText = this.AIoutputProcess(data.content || '')
           placeholder.text = finalText
-          placeholder.dt = this.getFormattedDate()
+          // AI 气泡 dt 优先使用后端服务端时间 (data.dt, 北京时区, 单源),
+          // 保证前后端时间一致; 后端未返回时降级到前端格式。
+          placeholder.dt = data.dt || this.getFormattedDate()
           placeholder.hl = this.chosen_hldata
           if (data.usage?.total_tokens != null) placeholder.token_count = data.usage.total_tokens
           // 不再 skipScroll:handleAiChange 内部会在 UpdateWindowUI 完成后
@@ -1455,16 +1459,30 @@ export default{
       this.handleAskAreaBlur(true)
 
     },
+    /**
+     * 单源时间生成 (前端)。
+     * 与后端 prompts.py 的 _BEIJING_TZ / format_dt_minute 一致:
+     *   - 时区: Asia/Shanghai (北京时间)
+     *   - 格式: "YYYY-MM-DD HH:MM"
+     *
+     * 后端响应里也会带 dt 字段 (AiResp.dt), 那是真正的服务端时间。
+     * 前端只在"立即展示"场景(如用户气泡刚发出)用此函数;
+     * AI 气泡渲染时应优先使用 data.dt 以保证前后端完全一致。
+     */
     getFormattedDate() {
-      const now = new Date();
-      
-      const year = now.getFullYear(); // 2025
-      const month = now.getMonth() + 1; // 月份从0开始，所以要加1
-      const day = now.getDate(); // 30
-      const hours = now.getHours(); // 14
-      const minutes = now.getMinutes(); // 52
-      
-      return `${year}/${month}/${day} ${hours}:${minutes.toString().padStart(2, '0')}`;
+      const dtf = new Intl.DateTimeFormat('zh-CN', {
+        timeZone: 'Asia/Shanghai',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      })
+      // zh-CN 格式化顺序: YYYY/MM/DD HH:MM, 把 / 替换为 - 即可
+      const parts = dtf.formatToParts(new Date())
+      const map = Object.fromEntries(parts.filter(p => p.type !== 'literal').map(p => [p.type, p.value]))
+      return `${map.year}-${map.month}-${map.day} ${map.hour}:${map.minute}`
     },
     adjustScroll(index=this.ai_res.length -1) {
       const container = this.$refs.render_container;

@@ -6,6 +6,7 @@ Crystal 人设与 Prompt 模板 — 从 pdf-iframe/src/scripts/aiService.js 完�
 """
 from __future__ import annotations
 
+import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -60,27 +61,63 @@ def CrystalPersona() -> str:
 # 时间感知
 # ═══════════════════════════════════════════════════════════════════════
 
+# ═══════════════════════════════════════════════════════════════════════
+# 单源时间系统 (Single-source time)
+# ═══════════════════════════════════════════════════════════════════════
+# 设计: 整个进程共用一个时间源 `now_ms()` —— 返回 UTC Unix 毫秒时间戳。
+#
+# 为什么不用 `datetime.now().timestamp() * 1000` ?
+#   - `datetime.now()` 默认是系统本地时区 (naive datetime)
+#   - naive datetime 调 `.timestamp()` 时 Python 会假设它是系统本地时区再转 UTC
+#   - 结果依赖系统时区, 在非 UTC 服务器上会与 `time.time()` 不一致
+#
+# 为什么不用 `time.time() * 1000` ?
+#   - 表达力差, 不暴露"毫秒"语义
+#   - 调用点分散容易写错 (有人会写 `int(time.time())` 丢精度)
+#
+# 唯一源: `now_ms()` 返回 UTC epoch ms, 任何时区/格式/星期换算都基于它派生。
+
+def now_ms() -> int:
+    """返回当前 UTC Unix 时间戳 (毫秒)。进程内唯一时间源。"""
+    return int(time.time() * 1000)
+
+
+# 北京时间固定时区常量 — 整个进程只用一个 tz, 避免散落 ZoneInfo("Asia/Shanghai")
+_BEIJING_TZ = ZoneInfo("Asia/Shanghai")
+_BEIJING_WEEKDAY_NAMES = ["一", "二", "三", "四", "五", "六", "日"]
+
+
+def _to_beijing_dt(ts_ms: int) -> datetime:
+    """把 epoch ms 转换为北京本地时间的 datetime 对象 (内部辅助)。"""
+    return datetime.fromtimestamp(ts_ms / 1000, tz=_BEIJING_TZ)
+
+
 def get_current_time_context() -> str:
     """
-    获取当前时间的上下文信息，用于让 AI 感知时间。
-    返回格式化的日期时间字符串，包含星期、农历/公历日期、时区等。
+    返回供 LLM 使用的"当前时间感知"字符串 (北京时区)。
+    调用 now_ms() 派生 — 与系统时区无关。
     """
-    now = datetime.now(ZoneInfo("Asia/Shanghai"))
-    weekday_names = ["一", "二", "三", "四", "五", "六", "日"]
-    weekday = weekday_names[now.weekday()]
-
+    dt = _to_beijing_dt(now_ms())
+    weekday = _BEIJING_WEEKDAY_NAMES[dt.weekday()]
     return (
-        f"【当前时间感知】\n"
-        f"- 当前时间：{now.strftime('%Y年%m月%d日 %H:%M:%S')}（北京时间）\n"
-        f"- 今天是：星期{weekday}\n"
-        f"- 可用工具：你可以使用 <get_current_time/> 标签来查询当前精确时间（返回 ISO 8601 格式和可读格式）。\n"
-        f"  例如需要计算日期差、判断具体时间点时，使用此工具。\n"
+        f"【当前时间感知】{dt.strftime('%Y年%m月%d日 %H:%M:%S')} 星期{weekday}（北京时间）\n"
     )
 
 
-def get_current_timestamp() -> int:
-    """获取当前 Unix 时间戳（毫秒）"""
-    return int(datetime.now().timestamp() * 1000)
+def format_dt_minute(ts_ms: int) -> str:
+    """
+    毫秒时间戳 → 可读字符串 "YYYY-MM-DD HH:MM" (北京时间, 分钟精度)。
+    用于 Crystal_memory.md 时间戳 (LLM 写到笔记里)。
+    """
+    return _to_beijing_dt(ts_ms).strftime("%Y-%m-%d %H:%M")
+
+
+def format_dt_second(ts_ms: int) -> str:
+    """
+    毫秒时间戳 → 可读字符串 "YYYY-MM-DD HH:MM:SS" (北京时间, 秒级精度)。
+    用于 track.ts_str 和 update memory 的 current_timestamp。
+    """
+    return _to_beijing_dt(ts_ms).strftime("%Y-%m-%d %H:%M:%S")
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -92,7 +129,7 @@ def SYSTEM_ASK(time_context: str) -> str:
     return (
         CrystalPersona()
         + "\n\n"
-        + f"【时间感知:{time_context}】"
+        + time_context
         + "\n\n"
         + "【当前任务】\n"
         + "用户正在阅读学术论文并向你提问。结合论文上下文和记忆，回答用户的问题。"
@@ -104,7 +141,7 @@ def SYSTEM_LOAD(time_context: str) -> str:
     return (
         CrystalPersona()
         + "\n\n"
-        + f"【时间感知:{time_context}】"
+        + time_context
         + "\n\n"
         + "【当前任务】\n"
         + "用户选中了论文中的一段文字，要求你进行总结和解释。直接输出内容，不要任何引导句。"
@@ -144,7 +181,11 @@ def buildAssistantContext(quotes: list[dict], quote_content: str) -> str:
     return f"\n\n用户引用的解释：{quote_content}"
 
 
-def buildAskMessages(req: AiAskReq, paper_history: list[dict], time_context: str) -> list[dict]:
+def buildAskMessages(
+    req: AiAskReq,
+    paper_history: list[dict],
+    time_context: str,
+) -> list[dict]:
     """
     Ask 模式消息构造。
 
@@ -152,6 +193,9 @@ def buildAskMessages(req: AiAskReq, paper_history: list[dict], time_context: str
       req:           AiAskReq
       paper_history: 当前 pdf_fp 最近 N 轮对话 (user/assistant 交替, 已正序)
       time_context:  时间感知上下文（包含当前时间和时间查询工具说明）
+
+    track 注入不在此处 — 由调用方 compose_messages_node 负责
+      (在 paper_history 之后、本轮 user 之前插入 role=assistant 消息)
 
     返回: OpenAI 格式的 messages 数组
       [
@@ -178,9 +222,9 @@ def buildAskMessages(req: AiAskReq, paper_history: list[dict], time_context: str
     messages: list[dict] = [
         {"role": "system", "content": SYSTEM_ASK(time_context)},
     ]
-    # 插入历史 (已经按时间正序)
+    # 插入论文历史 (已按时间正序)
     messages.extend(paper_history)
-    # 本轮 user
+    # 本轮 user — track 不在这里插入, 由 compose_messages_node 负责
     messages.append({"role": "user", "content": user_content})
     return messages
 
@@ -231,6 +275,14 @@ def MEMORY_UPDATE_SYSTEM() -> str:
     """
     用于 update_crystal_memory 的 system prompt:
     指导 LLM 从一段对话中提取 Crystal 对用户的认知, 并合并进 Crystal_mem.md。
+
+    本 system 提示词只描述角色和笔记内容原则 ——
+    时间戳规范、输出指令、当前笔记/对话/track 上下文 全部由 user prompt
+    (MEMORY_UPDATE_USER_HEADER + buildMemoryUpdateUserPrompt 动态拼接) 提供。
+    实际的时间戳值由调用方通过 buildMemoryUpdateUserPrompt 的 current_timestamp 参数注入。
+
+    去掉重复: 原先在 system 里的【时间戳规范】【输出要求】一并移到 user prompt
+    (MEMORY_UPDATE_USER_HEADER), 避免 system 与 user 重复说明同一件事。
     """
     return (
         f"你的人设为{CrystalPersona()}\n"
@@ -245,6 +297,25 @@ def MEMORY_UPDATE_SYSTEM() -> str:
         "- 不要重复记录同一件事, 出现冲突时以最新对话为准\n"
         "- 如果本次对话没有产生新的用户认知, 返回原内容不变\n"
         "- 合理删减和论文有关的内容, 保留和用户认知有关的内容, 不要让内容越来越长"
+    )
+
+
+def MEMORY_UPDATE_USER_HEADER() -> str:
+    """
+    用于 update_crystal_memory 的 user prompt 静态头部:
+    一次性说清楚时间戳规范 + 输出指令 (避免与 system 重复)。
+    时间戳值 / 当前笔记内容 / 本轮对话 / track 上下文等动态内容
+    由 buildMemoryUpdateUserPrompt 在尾部拼接。
+    """
+    return (
+        "请基于下方提供的「当前 Crystal_mem.md」「本次用户对话」以及作为补充的「跨论文对话轨迹」,\n"
+        "输出更新后的完整 Crystal_mem.md 文本。\n"
+        "\n"
+        "【时间戳规范】\n"
+        "- 被修改或新增的条目, 在条目末尾追加时间戳, 格式:[更新时间: YYYY-MM-DD HH:MM]\n"
+        "- 已有时间戳的旧条目如果被修改或补充, 更新时间戳为本次更新时刻\n"
+        "- 仅有时间变化而无内容变化的条目, 不需要更新时间戳\n"
+        "- 如果原笔记中有条目但时间戳格式不符合, 统一补上或修正为正确格式\n"
         "\n"
         "【输出要求】\n"
         "- 严格只输出最终的 Markdown 文本(不要输出任何解释、前后缀、代码块标记)\n"
@@ -256,42 +327,105 @@ def buildMemoryUpdateUserPrompt(
     current_memory_md: str,
     user_msg: str,
     assistant_msg: str,
-    intermediate_history: list[dict] | None = None,
+    current_timestamp: str = "",
+    track: list[dict] | None = None,
 ) -> str:
     """
     构造 update_crystal_memory 的 user prompt:
-    把当前 Crystal_mem.md 内容 + 上次 Ask 到本轮之间的完整对话轨迹 (intermediate_history)
-    + 本轮对话一起喂给 LLM, 让它返回更新后的 Markdown。
+      - 静态头部: MEMORY_UPDATE_USER_HEADER (含时间戳规则 + 输出指令, 一次性说清楚)
+      - 动态块:
+        * 当前 Crystal_mem.md 内容
+        * 跨论文最近 N 条 Ask 轨迹 (track) — 提供全局上下文
+        * 本轮对话 (user_msg / assistant_msg)
+        * 本次更新时刻 (current_timestamp)
 
-    intermediate_history 格式: [{role: "user"|"assistant", content: str}, ...] (已正序)
+    参数:
+      current_timestamp: 本次更新时刻字符串 (格式 "YYYY-MM-DD HH:MM"),
+                         传 "" 时不带时间戳。
+
+      track: 跨论文全局 Ask 轨迹 (最近 20 条),
+             None 或 [] 表示不附加 track 上下文。
+             替代原来的 intermediate_history —— track 已经覆盖了
+             "上次 Ask 到本轮之间" 的所有 Ask 全局提问脉络,
+             比 intermediate_history (只覆盖单论文 user/assistant 完整记录)
+             信息更聚焦、更新成本更低。
+      user_msg / assistant_msg: 本轮 Ask 的用户提问 + Crystal 回答 (用作本次更新主素材)
     """
-    bg_block = ""
-    if intermediate_history:
-        lines = []
-        for ev in intermediate_history:
-            role = ev.get("role", "")
-            content = ev.get("content", "")
-            if not isinstance(content, str):
-                continue
-            if role == "user":
-                lines.append(f"- 用户:「{content}」")
-            elif role == "assistant":
-                lines.append(f"  Crystal: {content[:200]}...")
-        if lines:
-            bg_block = (
-                "\n【上次 Ask 以来到本轮之间的对话轨迹(中间发生的 Load / Ask), 仅供参考】\n"
-                + "\n".join(lines) + "\n"
-            )
+    track_section = ""
+    if track:
+        track_lines = []
+        for i, entry in enumerate(track):
+            ts_str = entry.get("ts_str") or ""
+            pdf_short = entry.get("pdf_fp", "")[:8]
+            user_q = (entry.get("user") or "").replace("\n", " ")[:80]
+            asst_a = (entry.get("assistant") or "").replace("\n", " ")[:120]
+            prefix = f"[{ts_str}] " if ts_str else ""
+            track_lines.append(f"- {i + 1}. {prefix}[{pdf_short}] 用户:「{user_q}」")
+            if asst_a:
+                track_lines.append(f"          Crystal: {asst_a}...")
+        track_section = (
+            "\n【跨论文对话轨迹(最近若干条 Ask, 提供全局上下文)】\n"
+            + "\n".join(track_lines)
+            + "\n"
+        )
 
-    return (
+    timestamp_section = ""
+    if current_timestamp:
+        timestamp_section = (
+            f"\n【本次更新时刻】{current_timestamp}（北京时间）。\n"
+            "请将本次更新时刻按上方时间戳规范追加到被修改或新增的条目末尾。\n"
+        )
+
+    memory_block = (
         "【当前 Crystal_mem.md 内容】\n"
         "(如果是空字符串, 表示这是首次记录)\n"
         + (current_memory_md if current_memory_md else "(空)\n")
-        + bg_block
-        + "\n"
-        + "【本次用户和你核心的对话内容】\n"
-        + f"用户: {user_msg}\n"
-        + f"Crystal: {assistant_msg}\n"
-        + "\n"
-        + "请基于以上内容, 输出更新后的完整 Crystal_mem.md 文本。"
     )
+
+    this_turn_block = (
+        "【本次用户和你核心的对话内容】\n"
+        f"用户: {user_msg}\n"
+        f"Crystal: {assistant_msg}\n"
+    )
+
+    return (
+        MEMORY_UPDATE_USER_HEADER()
+        + "\n\n"
+        + memory_block
+        + track_section
+        + this_turn_block
+        + timestamp_section
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Crystal_track (跨论文 Ask 全局追踪) 相关 Prompt
+# ═══════════════════════════════════════════════════════════════════════
+
+def buildGlobalTrackContext(track: list[dict]) -> str:
+    """
+    把全局 track 格式化为 assistant 角色的对话历史文本,
+    让 LLM 在 assistant 位置上"看到"自己过去的发言脉络。
+
+    track 格式: [{ts, ts_str, pdf_fp, user, assistant}, ...]
+      - ts:      毫秒级 Unix 时间戳 (int)
+      - ts_str:  可读时间字符串 "YYYY-MM-DD HH:MM:SS" (新增字段, 向后兼容 — 老数据可能没有)
+    """
+    if not track:
+        return ""
+
+    # 顶部说明: 这是历史记录, 不是当前指令
+    lines = [
+        "【以下是我(Crystal)之前和用户交流的全局对话记录摘要, 仅供参考】",
+    ]
+    for i, entry in enumerate(track):
+        ts_str = entry.get("ts_str") or ""
+        pdf_short = entry.get("pdf_fp", "")[:8]
+        user_q = (entry.get("user") or "").replace("\n", " ")[:80]
+        asst_a = (entry.get("assistant") or "").replace("\n", " ")[:80]
+        prefix = f"[{ts_str}] " if ts_str else ""
+        lines.append(f"- {i + 1}. {prefix}[{pdf_short}] 用户:「{user_q}」")
+        if asst_a:
+            lines.append(f"          Crystal曾回复: {asst_a}")
+    return "\n".join(lines)
+

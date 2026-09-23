@@ -72,6 +72,12 @@ class AiLoadReq(BaseModel):
 # ── 统一响应 ───────────────────────────────────────────────────────────
 
 class AiResp(BaseModel):
-    """统一响应: content 是 Crystal 的最终回复, usage 是上游 LLM usage 统计 (可选)。"""
+    """统一响应: content 是 Crystal 的最终回复, usage 是上游 LLM usage 统计 (可选), dt 是服务端时间。"""
     content: str
     usage: Optional[dict] = None
+    dt: str = Field(
+        default="",
+        description="服务端时间戳字符串 (北京时间, 格式: YYYY-MM-DD HH:MM:SS)。"
+                    "前端应优先使用此字段而非本地时间, 确保前后端时区一致。"
+                    "空字符串表示后端未提供 (兼容老接口)。",
+    )
