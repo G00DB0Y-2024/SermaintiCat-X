@@ -316,7 +316,7 @@ def MEMORY_UPDATE_USER_HEADER() -> str:
     由 buildMemoryUpdateUserPrompt 在尾部拼接。
     """
     return (
-        "请基于下方提供的「当前 Crystal_memory.md」「本次用户对话」以及作为补充的「跨论文对话轨迹」,\n"
+        "请基于下方提供的「当前 Crystal_memory.md」「本次用户对话」以及作为补充的「当前论文窗口内的轨迹」,\n"
         "输出更新后的完整 Crystal_memory.md 文本。\n"
         "\n"
         "【时间戳规范】\n"
@@ -345,7 +345,9 @@ def buildMemoryUpdateUserPrompt(
       - 静态头部: MEMORY_UPDATE_USER_HEADER (含时间戳规则 + 输出指令)
       - 动态块: 当前笔记 + 双轨 track (ask + load) + 本轮对话 + 更新时间戳
 
-    ask_track / load_track: 跨论文全局轨迹, 提供全局上下文。
+    ask_track / load_track: 当前触发 fp 窗口内的轨迹 (已在调用方按 pdf_fp 过滤 + 截尾)。
+        论文场景: 只取当前论文最近 N 条 ask + M 条 load (跨论文 track 已被滤掉)。
+        Chat 场景: 调用方不传, 这里也走空块 (chat 不进 track, memory 不更新)。
     """
 
     timestamp_section = ""
@@ -360,6 +362,30 @@ def buildMemoryUpdateUserPrompt(
         "(如果是空字符串, 表示这是首次记录)\n"
         + (current_memory_md if current_memory_md else "(空)\n")
     )
+
+    # ── 当前窗口内的 ask 轨迹 ──
+    ask_section = ""
+    if ask_track:
+        lines = ["【当前论文最近 Ask 轨迹 (按时间倒序)】"]
+        for entry in ask_track:
+            ts_str = entry.get("ts_str", "")
+            user = entry.get("user", "")
+            asst = entry.get("assistant", "")
+            lines.append(f"- [{ts_str}] 用户: {user}")
+            lines.append(f"  Crystal: {asst}")
+        ask_section = "\n" + "\n".join(lines) + "\n"
+
+    # ── 当前窗口内的 load 轨迹 ──
+    load_section = ""
+    if load_track:
+        lines = ["【当前论文最近 Load 轨迹 (按时间倒序)】"]
+        for entry in load_track:
+            ts_str = entry.get("ts_str", "")
+            chosen = entry.get("chosen_text", "")
+            asst = entry.get("assistant", "")
+            lines.append(f"- [{ts_str}] 选区: {chosen}")
+            lines.append(f"  Crystal: {asst}")
+        load_section = "\n" + "\n".join(lines) + "\n"
 
     this_turn_block = (
         "【本次用户和你核心的对话内容】\n"

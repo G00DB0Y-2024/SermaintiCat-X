@@ -107,13 +107,15 @@ LOAD_LOCAL_LIMIT = 5    # 本论文 Load 历史最多取 5 对
 CHAT_LOCAL_LIMIT = 10   # ChatView 本地近 Z=10 对 (user+assistant)
 # Memory update 节流: 每 N 次论文 ask 触发一次 memory LLM
 # N = ASK_LOCAL_LIMIT // 2 = 5, 即第 5/10/15... 次 ask 触发
-MEMORY_UPDATE_EVERY_N = ASK_LOCAL_LIMIT // 2
+MEMORY_UPDATE_EVERY_N = 1 # ASK_LOCAL_LIMIT // 2
 
-# Crystal_memory.md 加载上限 (预留, 暂不限制, 由后续方案处理)
-# MEMORY_MAX_CHARS = 4000  # 占位, 当前不启用截断
 
 # ChatView 标识 (前端通过 pdf_fp=="crystal_chat" 调用 Chat 上下文)
 CHAT_FP = "crystal_chat"
+# Chat memory 上下文窗口: ChatView 本地近 Z=CHAT_MEMORY_LIMIT 对 (user+assistant)
+# 取最新一对就够喂 memory LLM 做摘要; 取多对是为了让模型看到脉络趋势,
+# 但也不宜太大 (prompt 会变长, 反而稀释"本次对话"的信号)。
+CHAT_MEMORY_LIMIT = 5
 
 _ask_track_list:  list[dict] | None = None
 _load_track_list: list[dict] | None = None
@@ -351,82 +353,6 @@ def _load_paper_history(fp: str, mode: str, limit: int) -> list[dict]:
     # 取最后 limit*2 条（最近 limit 轮），已正序
     tail = filtered[-(limit * 2):]
     return tail
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# Flattened Context 构建 (多轨合并 + 去重 + 时间序 + 占比截取)
-# ═══════════════════════════════════════════════════════════════════════
-
-def _build_flattened_context(
-    paper_history: list[dict],
-    global_track: list[dict],
-    pdf_fp: str,
-    local_limit: int,
-    global_limit: int,
-    is_load: bool = False,
-) -> list[dict]:
-    """
-    本论文 history + 全局 track 合并 -> 去重 -> 时间序展平 -> 占比截取。
-
-    输入:
-      paper_history: [{role, content, ts}, ...]   来自 _load_paper_history, 已正序, 保留 ts 字段
-      global_track:  [{ts, ts_str, pdf_fp, user, assistant, (chosen_text)?}, ...] 来自 _get_track, 已正序
-      pdf_fp:        当前论文 fp, 用于去重 key
-      local_limit:   本论文最多取 N 对 (user+assistant)
-      global_limit:  全局 track 最多补充 N 对
-      is_load:       True=Load 轨 (track 字段名为 chosen_text/assistant),
-                     False=Ask 轨 (track 字段名为 user/assistant)
-
-    返回:
-      去重 + 时间序铺平的 [{role:user, content}, {role:assistant, content}, ...]
-      严格遵循: 本论文先按最近 local_limit 对取用, track 再按最近 global_limit 对补足。
-
-    去重:
-      - 本论文 history 和全局 track 都用 (pdf_fp, ts) 作为去重 key
-      - 同一轮对话同时存在于 history 和 track 时，只会保留一条
-    """
-    flat: list[dict] = []
-    seen: set[tuple[str, int]] = set()
-
-    # 1) 本论文 history: 取最后 local_limit 对 (即 local_limit*2 条)
-    #    paper_history 严格 user/assistant 交替, 直接切片即可, 不需要 pending_user
-    local_msgs = paper_history[-(local_limit * 2):]
-    for msg in local_msgs:
-        role = msg.get("role")
-        content = msg.get("content", "")
-        flat.append({"role": role, "content": content})
-        # 用 ts 作为去重 key，与 track 保持一致
-        ts = msg.get("ts")
-        if ts is not None:
-            seen.add((pdf_fp, ts))
-
-    # 2) 全局 track: 按顺序补足, 去重 key 用 (entry.pdf_fp, entry.ts)
-    global_pairs = 0
-    for entry in global_track:
-        if global_pairs >= global_limit:
-            break
-        e_fp = entry.get("pdf_fp", "")
-        e_ts = entry.get("ts", 0)
-        key = (e_fp, e_ts)
-        if key in seen:
-            continue
-
-        if is_load:
-            user_text = entry.get("chosen_text", "")
-            asst_text = entry.get("assistant", "")
-        else:
-            user_text = entry.get("user", "")
-            asst_text = entry.get("assistant", "")
-
-        if not user_text or not asst_text:
-            continue
-
-        seen.add(key)
-        flat.append({"role": "user",      "content": user_text})
-        flat.append({"role": "assistant", "content": asst_text})
-        global_pairs += 1
-
-    return flat
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -716,7 +642,8 @@ def _compose_paper_ask_messages(
     """
     论文侧 Ask 上下文 (按 fp 隔离, 不读全局 track)。
     ask_history / load_history 已由 load_paper_history_node 装入 state,
-    这里不重复读盘, 也不再调 _build_flattened_context 的 global 分支。
+    这里不重复读盘。论文 fp 上下文不再注入全局 track (与 chat 路径分离,
+    详见 _compose_chat_messages)。
     """
     messages: list[dict] = [
         {"role": "system", "content": SYSTEM_ASK(time_context, agent_mem)},
@@ -779,7 +706,7 @@ def _build_track_summary_block() -> str:
     lines: list[str] = []
 
     if ask_track:
-        lines.append("【近期论文提问 (近 {} 条)】".format(len(ask_track)))
+        lines.append(f"【近期论文提问 (近 {len(ask_track)} 条)】")
         for e in ask_track:
             ts = e.get("ts_str", "")
             fp_short = (e.get("pdf_fp", "") or "")[:8]
@@ -789,7 +716,7 @@ def _build_track_summary_block() -> str:
 
     if load_track:
         lines.append("")
-        lines.append("【近期论文选段总结 (近 {} 条)】".format(len(load_track)))
+        lines.append(f"【近期论文选段总结 (近 {len(load_track)} 条)】")
         for e in load_track:
             ts = e.get("ts_str", "")
             fp_short = (e.get("pdf_fp", "") or "")[:8]
@@ -895,12 +822,17 @@ async def save_paper_memory_node(state: PaperAIState) -> dict:
 def _should_update_memory(fp: str, is_chat: bool) -> bool:
     """
     memory update 节流:
-    - Chat 场景 (pdf_fp == CHAT_FP) 不触发 memory update (memory 是关于论文阅读的沉淀)
-    - 论文 Ask: 每 MEMORY_UPDATE_EVERY_N 次 ask 触发一次 (默认 N=5)
-      计数按 fp 分桶, 避免跨论文干扰
+    - 论文 / Chat 都按 MEMORY_UPDATE_EVERY_N 次 ask 触发一次 memory LLM
+      (ChatView 是与 Crystal 闲聊的主战场, memory 理应吸收 chat 内容;
+       计数按 fp 分桶, chat 单独一桶, 不与论文互相干扰)
+    - 触发条件 (节流在调用方对外过滤 vision 后再走到这里):
+        (_ask_count_by_fp[fp] % MEMORY_UPDATE_EVERY_N) == 0
+      即第 N/MEMORY_UPDATE_EVERY_N 次 ask 时 (例如 N=1 表示每次) 触发。
+
+    注意: 函数本身不做 vision 过滤 (那在 update_agent_memory_node 入口处判断),
+    这里只做 is_chat 参与下的节流逻辑 ——
+    现在 is_chat 不再硬短路, 与论文走相同路径, 让 MEMORY_UPDATE_EVERY_N 在两个场景都生效。
     """
-    if is_chat:
-        return False
     return (_ask_count_by_fp.get(fp, 0) % MEMORY_UPDATE_EVERY_N) == 0
 
 
@@ -925,27 +857,30 @@ async def update_agent_memory_node(state: PaperAIState) -> dict:
     if isinstance(req, AiAskReq):
         is_vision = bool(getattr(req, "image_filename", ""))
 
-        if not is_chat:
-            # 论文场景: 写 ask_track (内部已过滤 chat fp, 这里仅作为语义清晰度保留判断)
-            if not is_vision:
-                _append_track("ask", {
-                    "ts": ts,
-                    "ts_str": dt_str,
-                    "pdf_fp": fp,
-                    "user": req.ask[:200],
-                    "assistant": answer[:200],
-                })
-
-        # 论文 ask 计数 + 节流判定
-        if not is_chat and not is_vision:
+        # 不管是论文 fp 还是 chat fp, 都不是 vision, 都做 ask 计数 + 节流判定。
+        # (论文 + chat 是同一个"Crystal 与用户交互"主链, 共享相同的 memory 累积机制;
+        #  计数按 fp 各自独立成桶 — "crystal_chat" 一桶, 每篇论文各一桶,
+        #  互不干扰。MEMORY_UPDATE_EVERY_N 对两桶都生效, 设 1 就是每次都触发。)
+        if not is_vision:
             _ask_count_by_fp[fp] = _ask_count_by_fp.get(fp, 0) + 1
             trigger_mem = _should_update_memory(fp, is_chat)
         else:
             trigger_mem = False
 
+        # 非 chat 场景下, 把 ask 追加到论文全局 track (track_summary_block 喂 ChatView)。
+        # chat 不写 track, 是为了避免 chat 自己的对话回灌到 chat system prompt 引起循环污染。
+        if not is_chat and not is_vision:
+            _append_track("ask", {
+                "ts": ts,
+                "ts_str": dt_str,
+                "pdf_fp": fp,
+                "user": req.ask[:200],
+                "assistant": answer[:200],
+            })
+
         if trigger_mem:
             task = asyncio.create_task(
-                _update_crystal_memory_async(req.ask, answer, dt_str)
+                _update_crystal_memory_async(req.ask, answer, dt_str, fp)
             )
             debug(
                 f"[crystal_memory] scheduled [ask throttled]: fp={fp[:12]} "
@@ -975,17 +910,80 @@ async def update_agent_memory_node(state: PaperAIState) -> dict:
     return {}
 
 
+def _load_chat_history_for_memory() -> tuple[list[dict], list[dict]]:
+    """
+    ChatView 场景下, 为 memory update 提供 ask 上下文。
+
+    直接读 save/crystal_chat_ai.json 的最近 CHAT_MEMORY_LIMIT 对 (ReqAsk + ResAsk),
+    转成与论文 track 一致的 {ts, ts_str, user, assistant} 字典, 让 _call_memory_update_llm
+    的 prompt 拼装逻辑无需分支处理。
+
+    返回: (ask_track, load_track); chat 没有 load, 第二项永远为 []。
+
+    实现细节:
+      - 按 ts 配对 (相邻的 ReqAsk 与 ResAsk 视为一对, ts 连续递增)。
+      - 时区/dt 沿用 save_paper_memory_node 写盘时的 dt 字段 (前端也消费同一个字段)。
+      - content 截断到 200 字符, 保持与论文 track 同样的尺寸约定。
+    """
+    path = _paper_history_path(CHAT_FP)
+    data = _read_json_safe(path, [])
+    if not isinstance(data, list) or not data:
+        return [], []
+
+    # 把 entry 流配成 user/assistant 对, 取最后 CHAT_MEMORY_LIMIT 对
+    pairs: list[tuple[dict, dict]] = []
+    pending_user: dict | None = None
+    for e in data:
+        if not isinstance(e, dict):
+            continue
+        t = e.get("type", "")
+        # 与论文侧 _load_paper_history 一致: vision Ask (img 非空) 跳过
+        if t == "ReqAsk" and e.get("img"):
+            pending_user = None  # 作废相邻未匹配的 user
+            continue
+        if t == "ResAsk" and pending_user is not None:
+            pairs.append((pending_user, e))
+            pending_user = None
+        elif t == "ReqAsk":
+            pending_user = e
+
+    # 取最后 N 对, 转 {user, assistant}
+    tail = pairs[-CHAT_MEMORY_LIMIT:]
+    ask_track: list[dict] = []
+    for u, a in tail:
+        ask_track.append({
+            "ts": a.get("ts", 0),
+            "ts_str": a.get("dt", ""),
+            "pdf_fp": CHAT_FP,
+            "user": (u.get("content") or "")[:200],
+            "assistant": (a.get("content") or "")[:200],
+        })
+    return ask_track, []
+
+
 async def _update_crystal_memory_async(
     user_msg: str,
     assistant_msg: str,
     current_timestamp: str = "",
+    fp: str = "",
 ) -> None:
     """
-    后台任务: 读 Crystal_memory.md, 把双轨 track (Ask + Load) + 本轮对话一起喂 LLM, 写回。
+    后台任务: 读 Crystal_memory.md, 把当前 fp 窗口内的双轨 track (或 chat 历史) +
+    本轮对话一起喂 LLM, 写回。
 
     复用 ai_config 中的 api_key / api_url / model。
 
     异常静默, 不影响用户响应。Crystal_mem.md 是锦上添花, 损坏不应阻塞主链路。
+
+    track 取的是**当前论文 fp 窗口内**最近 N 条 ask + M 条 load (跨论文 track 已被
+    按 pdf_fp 过滤), 这样 memory update 只反映当前论文的对话, 不会混入其他论文内容。
+
+    ChatView (fp == CHAT_FP) 场景:
+      - 论文 track 里没有 chat fp 记录 (_append_track 故意过滤 chat, 避免污染
+        chat 自己的 system prompt), 所以 chat 直接从 crystal_chat_ai.json
+        读最近 CHAT_MEMORY_LIMIT 条 ReqAsk/ResAsk 对, 转成 {user, assistant} 形式
+        喂给 prompt。这样 memory 既能吸收 chat 真实脉络, 又不绕回污染 ChatView 上下文。
+      - chat 没有 load 轨, load_track 为空。
     """
     try:
         if not ai_config["api_key"] or not ai_config["api_url"]:
@@ -1003,9 +1001,19 @@ async def _update_crystal_memory_async(
             except OSError:
                 current = ""
 
-        # 取双轨 track 作为辅助上下文
-        ask_track = _get_track("ask")
-        load_track = _get_track("load")
+        # 取"上下文轨" ——
+        #   论文 fp: 双轨 track (按 pdf_fp 过滤), 反映当前论文最近 N+M 对
+        #   chat fp: 直接从 crystal_chat_ai.json 读最近 CHAT_MEMORY_LIMIT 对 ReqAsk/ResAsk
+        is_chat = (fp == CHAT_FP)
+        if is_chat:
+            ask_track, load_track = _load_chat_history_for_memory()
+        else:
+            ask_track = [
+                e for e in (_get_track("ask") or []) if e.get("pdf_fp") == fp
+            ]
+            load_track = [
+                e for e in (_get_track("load") or []) if e.get("pdf_fp") == fp
+            ]
 
         new_md = await _call_memory_update_llm(
             current,
@@ -1040,8 +1048,8 @@ async def _call_memory_update_llm(
 
     参数:
       current_timestamp: 秒级可读时间字符串 (来自 now_ms + format_dt_second)
-      ask_track: Ask 跨论文轨迹
-      load_track: Load 跨论文轨迹
+      ask_track: 当前 fp 论文窗口内的最近 N 条 ask (按 pdf_fp 过滤)
+      load_track: 当前 fp 论文窗口内的最近 M 条 load (按 pdf_fp 过滤)
     """
     messages = [
         {"role": "system", "content": MEMORY_UPDATE_SYSTEM()},
