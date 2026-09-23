@@ -1,5 +1,5 @@
 """
-AI HTTP 端点 — /ai/config、/ai/ask、/ai/load。
+AI HTTP 端点 — /ai/config、/ai/ask、/ai/load、/ai/history。
 
 设计:
 - /ai/config (POST): 前端 SET_MODEL 时调用, 更新 ai_agent.ai_config 模块变量。
@@ -7,14 +7,19 @@ AI HTTP 端点 — /ai/config、/ai/ask、/ai/load。
 - /ai/config (GET):  返回当前 ai_config 快照。
 - /ai/ask (POST):    用户自由提问, 读 ai_config 调 LLM。
 - /ai/load (POST):   用户选中文本要求总结, 读 ai_config 调 LLM。
+- /ai/history (POST): 读取 save/{fp}_ai.json 原始 entry 列表 (供 ChatView 加载历史)。
 """
 from __future__ import annotations
+
+import os
+import json
 
 from fastapi import APIRouter, HTTPException
 
 from .ai_models import (
     AiConfigReq, AiConfigResp,
     AiAskReq, AiLoadReq, AiResp,
+    AiHistoryReq, AiHistoryResp,
 )
 from . import ai_agent
 from utils.log import debug
@@ -90,3 +95,38 @@ async def ai_load(req: AiLoadReq) -> AiResp:
     except Exception as e:
         debug(f"[/ai/load] ERROR: {type(e).__name__}: {e}")
         raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}")
+
+
+# ── /ai/history ────────────────────────────────────────────────────────
+
+@router.post("/history", response_model=AiHistoryResp)
+async def ai_history(req: AiHistoryReq) -> AiHistoryResp:
+    """
+    读取 save/{pdf_fp}_ai.json 原始 entry 列表。
+
+    用途: ChatView 进入页面时拉取历史, 把 ReqAsk / ResAsk 还原成 UI 消息列表。
+    物理位置由 ai_agent.SAVE_DIR 统一维护, 避免在 routes 层再算一遍路径。
+
+    返回:
+        AiHistoryResp.entries = list[dict], 每条至少含 {type, content, ts, dt}。
+        缺文件 / 解析失败 / 文件为空 → 返回空列表 (不报错)。
+    """
+    save_path = os.path.join(ai_agent.SAVE_DIR, f"{req.pdf_fp}_ai.json")
+    debug(f"[/ai/history] pdf_fp={req.pdf_fp!r} path={save_path!r}")
+
+    if not os.path.exists(save_path):
+        return AiHistoryResp(entries=[])
+
+    try:
+        with open(save_path, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        debug(f"[/ai/history] read failed: {type(e).__name__}: {e}")
+        return AiHistoryResp(entries=[])
+
+    # 防御: 文件存在但不是列表(被外部覆盖), 兜底返回空
+    if not isinstance(raw, list):
+        debug(f"[/ai/history] unexpected top-level type: {type(raw).__name__}")
+        return AiHistoryResp(entries=[])
+
+    return AiHistoryResp(entries=raw)

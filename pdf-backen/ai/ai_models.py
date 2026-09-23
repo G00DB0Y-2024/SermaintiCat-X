@@ -109,6 +109,19 @@ class AiMsgType(str, Enum):
     ANNO     = "Anno"
 
 
+class AiHistoryReq(BaseModel):
+    """ChatView 进入页面时调用, 拉取某 fp 的历史条目列表。"""
+    pdf_fp: str = Field(..., description="会话 fp, 聊天场景固定为 crystal_chat")
+
+
+class AiHistoryResp(BaseModel):
+    """save/{fp}_ai.json 里的全部 entry 列表 (含 ReqAsk/ResAsk)。"""
+    entries: list[dict] = Field(
+        default_factory=list,
+        description="原始 entry 列表, 每条至少有 {type, content, ts, dt}",
+    )
+
+
 class AiPaperEntry(BaseModel):
     """
     save/{fp}_ai.json 的单条 entry。

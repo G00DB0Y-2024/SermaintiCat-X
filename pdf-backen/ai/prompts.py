@@ -294,9 +294,8 @@ def MEMORY_UPDATE_SYSTEM() -> str:
     (MEMORY_UPDATE_USER_HEADER), 避免 system 与 user 重复说明同一件事。
     """
     return (
-        f"你的人设为{CrystalPersona()}\n"
-        "你正在维护一份关于用户的 Markdown 笔记(Crystal_memory.md), "
-        "记录你对这位用户的认知, 目的是让自己在后续对话中越来越懂这位用户, 和用户一起成长。\n"
+        "你是 Crystal 的笔记维护助手, 负责把对话中关于用户的认知沉淀为简洁 Markdown 笔记。\n"
+        "这份笔记会被注入到未来对话的 system prompt 中, 让 Crystal 和用户一起成长。\n"
         "\n"
         "【笔记内容原则】\n"
         "- 自由 Markdown 格式, 用标题/列表/段落组织都可以, 由你决定结构\n"
@@ -317,8 +316,8 @@ def MEMORY_UPDATE_USER_HEADER() -> str:
     由 buildMemoryUpdateUserPrompt 在尾部拼接。
     """
     return (
-        "请基于下方提供的「当前 Crystal_mem.md」「本次用户对话」以及作为补充的「跨论文对话轨迹」,\n"
-        "输出更新后的完整 Crystal_mem.md 文本。\n"
+        "请基于下方提供的「当前 Crystal_memory.md」「本次用户对话」以及作为补充的「跨论文对话轨迹」,\n"
+        "输出更新后的完整 Crystal_memory.md 文本。\n"
         "\n"
         "【时间戳规范】\n"
         "- 被修改或新增的条目, 在条目末尾追加时间戳, 格式:[更新时间: YYYY-MM-DD HH:MM]\n"
@@ -328,7 +327,8 @@ def MEMORY_UPDATE_USER_HEADER() -> str:
         "\n"
         "【输出要求】\n"
         "- 严格只输出最终的 Markdown 文本(不要输出任何解释、前后缀、代码块标记)\n"
-        "- 如果原内容为空, 请直接给出你从这段对话中总结出的初始笔记"
+        "- 如果原内容为空, 请直接给出你从这段对话中总结出的初始笔记\n"
+        "- 对旧的记忆进行总结压缩, 适当删减, 不要让内容越来越长"
     )
 
 
@@ -347,40 +347,6 @@ def buildMemoryUpdateUserPrompt(
 
     ask_track / load_track: 跨论文全局轨迹, 提供全局上下文。
     """
-    def _fmt_track(
-        entries: list[dict],
-        label: str,
-        short_key: str,
-        truncate_user: bool = True,
-        truncate_assistant: bool = True,
-        asst_limit: int = 120,
-    ) -> str:
-        if not entries:
-            return ""
-        lines = [f"\n【跨论文{label}轨迹, 仅供参考】"]
-        for i, entry in enumerate(entries):
-            ts_str = entry.get("ts_str") or ""
-            pdf_short = entry.get("pdf_fp", "")[:8]
-            raw_val = (entry.get(short_key) or "").replace("\n", " ")
-            val = raw_val[:80] if truncate_user else raw_val
-            raw_asst = (entry.get("assistant") or "").replace("\n", " ")
-            asst_a = raw_asst[:asst_limit] if truncate_assistant else raw_asst
-            prefix = f"[{ts_str}] " if ts_str else ""
-            lines.append(f"- {i+1}. {prefix}[{pdf_short}] 用户:「{val}」")
-            if asst_a:
-                lines.append(f"          Crystal: {asst_a}...")
-        return "\n".join(lines)
-
-    # Ask 轨: user/assistant 均不截断, 供记忆抽取用
-    ask_section  = _fmt_track(
-        ask_track  or [], "Ask",  "user",
-        truncate_user=False, truncate_assistant=False,
-    )
-    # Load 轨: user/assistant 统一截断 100
-    load_section = _fmt_track(
-        load_track or [], "Load", "chosen_text",
-        truncate_user=True, truncate_assistant=True, asst_limit=100,
-    )
 
     timestamp_section = ""
     if current_timestamp:
@@ -390,7 +356,7 @@ def buildMemoryUpdateUserPrompt(
         )
 
     memory_block = (
-        "【当前 Crystal_mem.md 内容】\n"
+        "【当前 Crystal_memory.md 内容】\n"
         "(如果是空字符串, 表示这是首次记录)\n"
         + (current_memory_md if current_memory_md else "(空)\n")
     )

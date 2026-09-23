@@ -96,19 +96,35 @@ def _set_agent_memory_cache(md: str) -> None:
 # ═══════════════════════════════════════════════════════════════════════
 ASK_TRACK_FILE  = os.path.join(BASE_DIR, "ai", "memory", "Crystal_track_ask.json")
 LOAD_TRACK_FILE = os.path.join(BASE_DIR, "ai", "memory", "Crystal_track_load.json")
-MAX_ASK_TRACK  = 15
-MAX_LOAD_TRACK = 5
+MAX_ASK_TRACK  = 5   # ChatView 注入上限 (track-ask)
+MAX_LOAD_TRACK = 3   # ChatView 注入上限 (track-load)
 
-# ── Ask 上下文拼装配比 (本文 vs 全局, 各占上限, 去重后严格按占比截取) ──
+# ── 上下文窗口参数 ──
+# PDFAI 论文侧: 仅本论文上下文, 不加载全局 track
 ASK_LOCAL_LIMIT  = 10   # 本论文 Ask 历史最多取 10 对 (user+assistant)
-ASK_GLOBAL_LIMIT = 5   # 全局 track-ask 最多补充 10 对
-LOAD_LOCAL_LIMIT  = 3   # 本论文 Load 历史最多取 5 对
-LOAD_GLOBAL_LIMIT = 2   # 全局 track-load 最多补充 5 对
+LOAD_LOCAL_LIMIT = 5    # 本论文 Load 历史最多取 5 对
+# ChatView 侧: Chat 本地窗口
+CHAT_LOCAL_LIMIT = 10   # ChatView 本地近 Z=10 对 (user+assistant)
+# Memory update 节流: 每 N 次论文 ask 触发一次 memory LLM
+# N = ASK_LOCAL_LIMIT // 2 = 5, 即第 5/10/15... 次 ask 触发
+MEMORY_UPDATE_EVERY_N = ASK_LOCAL_LIMIT // 2
+
+# Crystal_memory.md 加载上限 (预留, 暂不限制, 由后续方案处理)
+# MEMORY_MAX_CHARS = 4000  # 占位, 当前不启用截断
+
+# ChatView 标识 (前端通过 pdf_fp=="crystal_chat" 调用 Chat 上下文)
+CHAT_FP = "crystal_chat"
 
 _ask_track_list:  list[dict] | None = None
 _load_track_list: list[dict] | None = None
 _ask_dirty:  bool = False
 _load_dirty: bool = False
+
+# 按 fp 分桶的 ask 计数 (用于 memory update 节流, 跨论文隔离)
+_ask_count_by_fp: dict[str, int] = {}
+
+# paper history 读盘缓存: {(path, mtime): data}
+_paper_history_cache: dict[tuple[str, float], Any] = {}
 
 
 def _get_track(mode: str) -> list[dict]:
@@ -158,8 +174,15 @@ def _append_track(mode: str, entry: dict) -> None:
 
     注意: 只改内存 cache + 标 dirty, 不立即写盘!
     写盘由 flush_track_node 在对话结束后统一执行。
+
+    过滤规则: Crystal 全局 track 仅追踪论文场景。
+    当 entry.pdf_fp == CHAT_FP ("crystal_chat") 时, 表示这是 ChatView 的对话,
+    不写入论文 track (避免污染 ChatView 自身的上下文)。
     """
     global _ask_dirty, _load_dirty
+    if entry.get("pdf_fp") == CHAT_FP:
+        debug(f"[crystal_track] SKIP (chat fp): mode={mode}")
+        return
     track = list(_get_track(mode))  # 复制
     max_size = MAX_ASK_TRACK if mode == "ask" else MAX_LOAD_TRACK
     track.append(entry)
@@ -217,14 +240,49 @@ def _paper_history_path(pdf_fp: str) -> str:
 
 
 def _read_json_safe(path: str, default: Any) -> Any:
-    """读 JSON 文件，异常静默返回 default。"""
+    """
+    读 JSON 文件，异常静默返回 default。
+    加 in-memory 缓存: 以 (path, mtime) 为 key, mtime 变了才重读, 避免同一文件
+    在单次请求中重复打磁盘 (paper_history_node 与 compose 之间的链路已用 state 传递,
+    但 _read_json_safe 仍被多处复用, 缓存兜底)。
+    """
     if not os.path.exists(path):
         return default
     try:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        return default
+
+    cache_key = (path, mtime)
+    cached = _paper_history_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    try:
         with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
     except (json.JSONDecodeError, OSError):
         return default
+
+    _paper_history_cache[cache_key] = data
+    # 缓存表膨胀保护: 简单随机淘汰 (实际工程中 entry 数受论文 fp 数 + track 上限约束,
+    # 单进程内通常不会超过数百条)
+    if len(_paper_history_cache) > 64:
+        # 移除最旧的一批 entry (按 dict 插入顺序)
+        first_key = next(iter(_paper_history_cache))
+        if first_key != cache_key:
+            _paper_history_cache.pop(first_key, None)
+    return data
+
+
+def _invalidate_history_cache(path: str) -> None:
+    """
+    写盘后调用, 移除该 path 的所有 mtime 缓存条目。
+    save_paper_memory_node 写完盘后调用, 确保下个请求读到新内容。
+    """
+    keys_to_drop = [k for k in _paper_history_cache if k[0] == path]
+    for k in keys_to_drop:
+        _paper_history_cache.pop(k, None)
 
 
 def _load_paper_history(fp: str, mode: str, limit: int) -> list[dict]:
@@ -379,19 +437,23 @@ class PaperAIState(TypedDict):
     """
     LangGraph 工作区状态。
 
-    req:           入口请求(AiAskReq 或 AiLoadReq)
-    messages:      组装好的 OpenAI 格式 messages, 准备送给 llm_call
-    agent_memory:  从 Crystal_memory.md 加载的 Markdown 全文(注入 system prompt)
-    paper_history: 当前 pdf_fp 最近 N 轮 paper_history (Ask 20 / Load 10)
-    final_answer:  llm_call 返回的最终 content
-    usage:         上游 LLM 的 usage 统计
-    dt:            服务端时间字符串 (北京时区, 秒级, 来自 now_ms 单源时间),
-                   通过 AiResp.dt 透传给前端, 保证前后端时间一致。
+    req:                 入口请求(AiAskReq 或 AiLoadReq)
+    messages:            组装好的 OpenAI 格式 messages, 准备送给 llm_call
+    agent_memory:        从 Crystal_memory.md 加载的 Markdown 全文(注入 system prompt)
+    paper_history:       兼容字段, 论文侧即为 paper_ask_history
+    paper_ask_history:   当前 pdf_fp 最近 ASK_LOCAL_LIMIT 对 ask 历史 (role 交替)
+    paper_load_history:  当前 pdf_fp 最近 LOAD_LOCAL_LIMIT 对 load 历史 (role 交替)
+    final_answer:        llm_call 返回的最终 content
+    usage:               上游 LLM 的 usage 统计
+    dt:                  服务端时间字符串 (北京时区, 秒级, 来自 now_ms 单源时间),
+                         通过 AiResp.dt 透传给前端, 保证前后端时间一致。
     """
     req: Any  # AiAskReq | AiLoadReq
     messages: list[dict]
     agent_memory: str
     paper_history: list[dict]
+    paper_ask_history: list[dict]
+    paper_load_history: list[dict]
     final_answer: str
     usage: dict
     dt: str
@@ -498,26 +560,57 @@ async def load_agent_memory_node(state: PaperAIState) -> dict:
 
     缓存策略: 模块级 _agent_memory_cache, 首次调用时同步从 Crystal_memory.md 加载,
     之后 _update_crystal_memory_async 写完文件会同步刷新缓存。
+
+    注: 当前不做长度截断, MEMORY_MAX_CHARS 保留为占位 (后续方案处理)。
     """
     return {"agent_memory": _get_agent_memory()}
 
 
 async def load_paper_history_node(state: PaperAIState) -> dict:
     """
-    按 req 类型决定取哪类 paper history:
-      - Ask 模式: 本论文 Ask 历史 (mode="ask", 20 轮),
-                 后续 compose_messages_node 再合并 track ask
-      - Load 模式: 本论文 Load 历史 (mode="load", 20 轮)
+    一次性加载当前 pdf_fp 的 ask + load 两条历史轨。
+
+    设计: 论文侧上下文按 fp 隔离, 不再读全局 track。
+    但 ask 轨需要 load 轨作为辅助概要 (论文中的选段总结能帮 LLM 理解上下文),
+    所以两个都加载, 各自按 limit 上限截取, 写入 state 供后续 compose_messages_node 拼装。
+
+    ChatView 场景 (pdf_fp == "crystal_chat"):
+      - ask_history 作为 Chat 本地上下文 (CHAT_LOCAL_LIMIT 对)
+      - load_history 暂不使用 (Chat 不会 Load)
+
     Vision Ask 和 Anno 在 _load_paper_history 内部已过滤。
     """
     req = state["req"]
+    fp = req.pdf_fp
+    is_chat = (fp == CHAT_FP)
+
     if isinstance(req, AiAskReq):
-        history = _load_paper_history(req.pdf_fp, mode="ask", limit=20)
-        debug(f"[paper_history] ask: fp={req.pdf_fp} ask_rounds={len(history)//2}")
+        # Ask 模式 (论文 + Chat): 加载本 fp ask 历史
+        ask_limit = CHAT_LOCAL_LIMIT if is_chat else ASK_LOCAL_LIMIT
+        ask_history = _load_paper_history(fp, mode="ask", limit=ask_limit)
+        # 同时加载本 fp load 历史 (仅论文侧使用)
+        if is_chat:
+            load_history: list[dict] = []
+        else:
+            load_history = _load_paper_history(fp, mode="load", limit=LOAD_LOCAL_LIMIT)
+        debug(
+            f"[paper_history] ask: fp={fp[:12]} is_chat={is_chat} "
+            f"ask_rounds={len(ask_history)//2} load_rounds={len(load_history)//2}"
+        )
+        return {
+            "paper_history": ask_history,        # 兼容
+            "paper_ask_history": ask_history,
+            "paper_load_history": load_history,
+        }
     else:
-        history = _load_paper_history(req.pdf_fp, mode="load", limit=20)
-        debug(f"[paper_history] load: fp={req.pdf_fp} load_rounds={len(history)//2}")
-    return {"paper_history": history}
+        # Load 模式: 加载本论文 load 历史
+        load_history = _load_paper_history(fp, mode="load", limit=LOAD_LOCAL_LIMIT)
+        debug(f"[paper_history] load: fp={fp[:12]} load_rounds={len(load_history)//2}")
+        return {
+            "paper_history": load_history,
+            "paper_ask_history": [],
+            "paper_load_history": load_history,
+        }
 
 
 def _build_ask_user_content(req: AiAskReq) -> str | list[dict]:
@@ -561,65 +654,150 @@ def _build_load_user_content(req: AiLoadReq) -> str:
 
 async def compose_messages_node(state: PaperAIState) -> dict:
     """
-    Ask 模式 (新版): Flattened Track Context
-      [1] system = CrystalPersona + time_context + (可选 load 辅助概要) + agent_mem
-      [2] ask_msgs: 本论文 Ask (10 对) + 全局 track-ask (10 对) 去重后合并展平
-      [3] load_msgs: 本论文 Load (5 对) + 全局 track-load (5 对) 去重后合并展平
-      [4] user = 本轮提问
-      => 完全符合 OpenAI chat/completions 标准多轮 messages 格式
+    按场景组装 messages:
 
-    Load 模式: 人设 + 本论文 Load 历史 20 轮
+    论文 Ask (pdf_fp != CHAT_FP):
+      [system]  CrystalPersona + time + agent_mem + "在论文侧回答"
+      [ask_msgs]   本论文 ask (ASK_LOCAL_LIMIT 对)
+      [load_msgs]  本论文 load (LOAD_LOCAL_LIMIT 对)
+      [user]    本轮提问
+      -> 上下文按论文 fp 完全隔离
+
+    Chat Ask (pdf_fp == CHAT_FP):
+      [system]  CrystalPersona + time + agent_mem + "全局闲聊" + 论文 track 摘要块
+      [chat_msgs]  ChatView 本地近 Z=CHAT_LOCAL_LIMIT 对
+      [user]    本轮提问
+      -> 论文全局 track 通过 _get_track 注入 (track 仅含论文, 因为 _append_track 已过滤)
+
+    Load 模式: 人设 + 本论文 Load 历史 (LOAD_LOCAL_LIMIT 对)
     """
     req = state["req"]
-    history = state.get("paper_history") or []
     agent_mem = state.get("agent_memory") or ""
     time_context = get_current_time_context()
+    fp = req.pdf_fp
+    is_chat = (fp == CHAT_FP)
 
     if isinstance(req, AiAskReq):
-        # --- Ask: 合并 ask + load 双轨, 严格按 local/global 占比截取 ---
-        # 1) Ask 轨: 本论文 10 对 + 全局 track-ask 10 对
-        ask_msgs = _build_flattened_context(
-            paper_history=history,
-            global_track=_get_track("ask"),
-            pdf_fp=req.pdf_fp,
-            local_limit=ASK_LOCAL_LIMIT,
-            global_limit=ASK_GLOBAL_LIMIT,
-            is_load=False,
-        )
+        ask_history = state.get("paper_ask_history") or []
+        load_history = state.get("paper_load_history") or []
 
-        # 2) Load 轨: 本论文 5 对 + 全局 track-load 5 对
-        #    _load_paper_history 一次性只能取 Ask 或 Load, 这里复用 load 历史
-        #    (load 轨已 flat 化, role=user=论文片段, role=assistant=概括)
-        load_local_history = _load_paper_history(req.pdf_fp, mode="load", limit=LOAD_LOCAL_LIMIT)
-        load_msgs = _build_flattened_context(
-            paper_history=load_local_history,
-            global_track=_get_track("load"),
-            pdf_fp=req.pdf_fp,
-            local_limit=LOAD_LOCAL_LIMIT,
-            global_limit=LOAD_GLOBAL_LIMIT,
-            is_load=True,
-        )
-
-        # 3) System prompt: CrystalPersona + time + agent_mem
-        #    ask 轨已 flat, load 轨已 flat, 不再注入 track 文本块
-        messages: list[dict] = [
-            {
-                "role": "system",
-                "content": SYSTEM_ASK(time_context, agent_mem),
-            },
-        ]
-        messages.extend(ask_msgs)
-        messages.extend(load_msgs)
-        messages.append({"role": "user", "content": _build_ask_user_content(req)})
+        if is_chat:
+            messages = _compose_chat_messages(
+                req, ask_history, agent_mem, time_context
+            )
+        else:
+            messages = _compose_paper_ask_messages(
+                req, ask_history, load_history, agent_mem, time_context
+            )
     else:
-        # --- Load: 人设 + 本论文 Load 历史 20 轮 (保留旧逻辑) ---
+        # Load: 人设 + 本论文 Load 历史 (LOAD_LOCAL_LIMIT 对)
         messages = [
             {"role": "system", "content": SYSTEM_LOAD(time_context)},
         ]
-        messages.extend(history)
+        load_history = state.get("paper_load_history") or []
+        messages.extend(load_history)
         messages.append({"role": "user", "content": _build_load_user_content(req)})
 
+    debug(
+        f"[compose_messages] is_chat={is_chat} "
+        f"msgs={len(messages)} "
+        f"first_role={messages[0]['role'] if messages else '-'}"
+    )
     return {"messages": messages}
+
+
+def _compose_paper_ask_messages(
+    req: AiAskReq,
+    ask_history: list[dict],
+    load_history: list[dict],
+    agent_mem: str,
+    time_context: str,
+) -> list[dict]:
+    """
+    论文侧 Ask 上下文 (按 fp 隔离, 不读全局 track)。
+    ask_history / load_history 已由 load_paper_history_node 装入 state,
+    这里不重复读盘, 也不再调 _build_flattened_context 的 global 分支。
+    """
+    messages: list[dict] = [
+        {"role": "system", "content": SYSTEM_ASK(time_context, agent_mem)},
+    ]
+    # ask_history 本身已是 role 交替的标准 messages, 直接 extend 即可
+    messages.extend(ask_history)
+    # load_history 同理 (role=user=论文片段, role=assistant=概括)
+    messages.extend(load_history)
+    messages.append({"role": "user", "content": _build_ask_user_content(req)})
+    return messages
+
+
+def _compose_chat_messages(
+    req: AiAskReq,
+    chat_history: list[dict],
+    agent_mem: str,
+    time_context: str,
+) -> list[dict]:
+    """
+    ChatView 上下文 (脱离具体论文):
+      [system]  CrystalPersona + time + agent_mem + 全局闲聊提示 + 论文 track 摘要
+      [user/assistant × CHAT_LOCAL_LIMIT 对]  ChatView 本地历史
+      [user]  本轮提问
+
+    论文 track (ask+load) 由 _get_track 读出, 因为 _append_track 已经过滤了 chat fp,
+    所以 track 里只含论文场景的记录, 正好对应 ChatView "提示 Crystal 全局而言
+    和用户聊过什么" 的诉求。
+    """
+    # 1) 摘要化论文全局 track (避免破坏 user/assistant 交替, 用文本块)
+    track_summary = _build_track_summary_block()
+
+    system_content = SYSTEM_ASK(time_context, agent_mem)
+    if track_summary:
+        system_content += (
+            "\n\n【论文场景全局记忆 (仅供你了解用户近期在论文中的关注点, "
+            "不要直接复述, 在闲聊时自然关联即可)】\n"
+            + track_summary
+        )
+
+    messages: list[dict] = [
+        {"role": "system", "content": system_content},
+    ]
+    messages.extend(chat_history)
+    messages.append({"role": "user", "content": _build_ask_user_content(req)})
+    return messages
+
+
+def _build_track_summary_block() -> str:
+    """
+    把 Crystal_track_ask 和 Crystal_track_load 拼成一段摘要文本, 注入 ChatView system。
+    因为 track 已经按 MAX_ASK_TRACK / MAX_LOAD_TRACK 上限截取,
+    这里不需要再截断。chosen_text 在 _append_track 里已经被 [:200] 截断。
+    """
+    ask_track = _get_track("ask") or []
+    load_track = _get_track("load") or []
+
+    if not ask_track and not load_track:
+        return ""
+
+    lines: list[str] = []
+
+    if ask_track:
+        lines.append("【近期论文提问 (近 {} 条)】".format(len(ask_track)))
+        for e in ask_track:
+            ts = e.get("ts_str", "")
+            fp_short = (e.get("pdf_fp", "") or "")[:8]
+            user = e.get("user", "")
+            asst = e.get("assistant", "")
+            lines.append(f"- [{ts}][{fp_short}] 用户: {user} | Crystal: {asst}")
+
+    if load_track:
+        lines.append("")
+        lines.append("【近期论文选段总结 (近 {} 条)】".format(len(load_track)))
+        for e in load_track:
+            ts = e.get("ts_str", "")
+            fp_short = (e.get("pdf_fp", "") or "")[:8]
+            chosen = e.get("chosen_text", "")
+            asst = e.get("assistant", "")
+            lines.append(f"- [{ts}][{fp_short}] 选段: {chosen} | 总结: {asst}")
+
+    return "\n".join(lines)
 
 
 async def llm_call_node(state: PaperAIState) -> dict:
@@ -704,6 +882,8 @@ async def save_paper_memory_node(state: PaperAIState) -> dict:
     try:
         with open(path, "w", encoding="utf-8") as f:
             json.dump(history, f, ensure_ascii=False)
+        # 写盘后失效该 path 的 mtime 缓存, 保证下次请求读到的就是新内容
+        _invalidate_history_cache(path)
         debug(f"[save_paper_memory] ok: fp={fp} total={len(history)}")
     except OSError as e:
         debug(f"[save_paper_memory] FAIL: {e} | fp={fp}")
@@ -712,52 +892,85 @@ async def save_paper_memory_node(state: PaperAIState) -> dict:
 
 
 
+def _should_update_memory(fp: str, is_chat: bool) -> bool:
+    """
+    memory update 节流:
+    - Chat 场景 (pdf_fp == CHAT_FP) 不触发 memory update (memory 是关于论文阅读的沉淀)
+    - 论文 Ask: 每 MEMORY_UPDATE_EVERY_N 次 ask 触发一次 (默认 N=5)
+      计数按 fp 分桶, 避免跨论文干扰
+    """
+    if is_chat:
+        return False
+    return (_ask_count_by_fp.get(fp, 0) % MEMORY_UPDATE_EVERY_N) == 0
+
+
 async def update_agent_memory_node(state: PaperAIState) -> dict:
     """
     Ask 模式:
-      - 非 Vision: 追加到 ask_track cache + 异步写 Crystal_memory.md
-      - Vision Ask (img 非空): 不进 track，不写 mem
+      - 论文 fp + 非 Vision: 追加到 ask_track (经 _append_track 自动过滤 chat fp)
+      - Chat fp: 不写 track, 不写 mem (论文 track 保持纯净)
+      - 论文 fp: 节流触发 _update_crystal_memory_async (默认每 5 次 ask 一次)
+      - Vision Ask (img 非空): 不进 track, 但仍可节流触发 memory update
     Load 模式:
-      - 追加到 load_track cache (行为信号)
+      - 论文 fp: 追加到 load_track
+      - Chat fp: 不写 track
     """
     req = state["req"]
     answer = state["final_answer"]
     ts = now_ms()
     dt_str = format_dt_second(ts)
     fp = req.pdf_fp
+    is_chat = (fp == CHAT_FP)
 
     if isinstance(req, AiAskReq):
         is_vision = bool(getattr(req, "image_filename", ""))
 
-        if not is_vision:
-            # 非 Vision: 进 ask_track (过滤规则)
-            _append_track("ask", {
+        if not is_chat:
+            # 论文场景: 写 ask_track (内部已过滤 chat fp, 这里仅作为语义清晰度保留判断)
+            if not is_vision:
+                _append_track("ask", {
+                    "ts": ts,
+                    "ts_str": dt_str,
+                    "pdf_fp": fp,
+                    "user": req.ask[:200],
+                    "assistant": answer[:200],
+                })
+
+        # 论文 ask 计数 + 节流判定
+        if not is_chat and not is_vision:
+            _ask_count_by_fp[fp] = _ask_count_by_fp.get(fp, 0) + 1
+            trigger_mem = _should_update_memory(fp, is_chat)
+        else:
+            trigger_mem = False
+
+        if trigger_mem:
+            task = asyncio.create_task(
+                _update_crystal_memory_async(req.ask, answer, dt_str)
+            )
+            debug(
+                f"[crystal_memory] scheduled [ask throttled]: fp={fp[:12]} "
+                f"count={_ask_count_by_fp[fp]} "
+                f"user_len={len(req.ask)} asst_len={len(answer)} "
+                f"task_id={id(task)}"
+            )
+        else:
+            debug(
+                f"[crystal_memory] SKIP: is_chat={is_chat} is_vision={is_vision} "
+                f"count={_ask_count_by_fp.get(fp, 0)}/{MEMORY_UPDATE_EVERY_N}"
+            )
+    else:
+        # Load 模式: 论文 fp 写 load_track (chat fp 不写)
+        if not is_chat:
+            _append_track("load", {
                 "ts": ts,
                 "ts_str": dt_str,
                 "pdf_fp": fp,
-                "user": req.ask[:200],
+                "chosen_text": req.chosen_text[:200],
                 "assistant": answer[:200],
             })
-
-        # Mem 写: Vision Ask 也异步写 mem（不阻塞，不影响主链路）
-        task = asyncio.create_task(
-            _update_crystal_memory_async(req.ask, answer, dt_str)
-        )
-        debug(
-            f"[crystal_memory] scheduled [ask]: vision={is_vision} "
-            f"user_len={len(req.ask)} asst_len={len(answer)} "
-            f"task_id={id(task)}"
-        )
-    else:
-        # Load 模式: 进 load_track (行为信号)
-        _append_track("load", {
-            "ts": ts,
-            "ts_str": dt_str,
-            "pdf_fp": fp,
-            "chosen_text": req.chosen_text[:200],
-            "assistant": answer[:200],
-        })
-        debug("[crystal_memory] load mode: appended to load_track")
+            debug("[crystal_memory] load mode: appended to load_track")
+        else:
+            debug("[crystal_memory] load mode: skipped (chat fp)")
 
     return {}
 
@@ -909,6 +1122,8 @@ async def run_ask(req: AiAskReq) -> dict:
         "messages": [],
         "agent_memory": "",
         "paper_history": [],
+        "paper_ask_history": [],
+        "paper_load_history": [],
         "final_answer": "",
         "usage": {},
         "dt": "",
@@ -925,6 +1140,8 @@ async def run_load(req: AiLoadReq) -> dict:
         "messages": [],
         "agent_memory": "",
         "paper_history": [],
+        "paper_ask_history": [],
+        "paper_load_history": [],
         "final_answer": "",
         "usage": {},
         "dt": "",
