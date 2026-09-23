@@ -126,18 +126,19 @@ def format_dt_second(ts_ms: int) -> str:
 
 def SYSTEM_ASK(
     time_context: str,
-    track_block: str = "",
     agent_mem: str = "",
 ) -> str:
     """
     Ask 模式 system prompt: CrystalPersona + 时间感知 + 当前任务(用户提问)
 
-    track_block / agent_mem 并入 system content，消除 assistant role 破坏交替的问题。
+    agent_mem 并入 system content。
+    历史上下文 (ask+load) 已通过 messages role=user/assistant 标准多轮格式注入,
+    不再注入 system 文本块 (否则会冗余且干扰 LLM 注意力)。
+
+    如未来需要为 load 提供摘要提示, 优先考虑在 user 消息前插入一条轻量 system
+    reminder, 而不是把 ask 全部塞回 system。
     """
     content = CrystalPersona() + "\n\n" + time_context
-
-    if track_block:
-        content += "\n\n" +  "【跨论文轨迹, 仅供参考】\n" + track_block
 
     if agent_mem:
         content += (
@@ -418,56 +419,3 @@ def buildMemoryUpdateUserPrompt(
         + this_turn_block
         + timestamp_section
     )
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# Crystal_track (跨论文 Ask 全局追踪) 相关 Prompt
-# ═══════════════════════════════════════════════════════════════════════
-
-def buildGlobalTrackContext(
-    ask_track: list[dict] | None = None,
-    load_track: list[dict] | None = None,
-    include_ask: bool = True,
-) -> str:
-    """
-    把双轨 track 格式化为 system/上下文文本。
-
-    ask_track 格式: [{ts, ts_str, pdf_fp, user, assistant}, ...]
-    load_track 格式: [{ts, ts_str, pdf_fp, chosen_text, assistant}, ...]
-
-    include_ask=False 时不输出 Ask 轨, 用于 Ask 模式 system prompt
-    (此时 Ask 轨已通过 messages 的 role=user/assistant 结构化注入,
-    无需在 system 中重复摘要, 避免信息冗余干扰话题连续性)。
-    """
-    lines = []
-
-    # Ask 轨 (user 不截断, assistant 仍截断 80 控制 prompt 长度)
-    if include_ask and ask_track:
-        lines.append("【以下是我(Crystal)之前和用户交流的全局对话记录摘要, 仅供参考】")
-        for i, entry in enumerate(ask_track):
-            ts_str = entry.get("ts_str") or ""
-            pdf_short = entry.get("pdf_fp", "")[:8]
-            user_q = (entry.get("user") or "").replace("\n", " ")
-            asst_a = (entry.get("assistant") or "").replace("\n", " ")[:80]
-            prefix = f"[{ts_str}] " if ts_str else ""
-            lines.append(f"- {i + 1}. {prefix}[{pdf_short}] 用户曾经询问:「{user_q}」")
-            if asst_a:
-                lines.append(f"          Crystal曾回复: {asst_a}")
-
-    # Load 轨 (始终保留, 作为行为信号)
-    if load_track:
-        if lines:
-            lines.append("")
-        lines.append("【用户在各论文中划词总结的历史(行为信号)】")
-        for i, entry in enumerate(load_track):
-            ts_str = entry.get("ts_str") or ""
-            pdf_short = entry.get("pdf_fp", "")[:8]
-            chosen = (entry.get("chosen_text") or "").replace("\n", " ")[:80]
-            asst_a = (entry.get("assistant") or "").replace("\n", " ")[:80]
-            prefix = f"[{ts_str}] " if ts_str else ""
-            lines.append(f"- {i + 1}. {prefix}[{pdf_short}] 用户划词摘要:「{chosen}」")
-            if asst_a:
-                lines.append(f"          Crystal曾回复: {asst_a}")
-
-    return "\n".join(lines)
-

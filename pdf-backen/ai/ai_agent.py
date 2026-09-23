@@ -23,7 +23,6 @@ import httpx
 
 from .ai_models import AiAskReq, AiLoadReq, AiResp, AiPaperEntry
 from .prompts import (
-    buildGlobalTrackContext,
     MEMORY_UPDATE_SYSTEM, buildMemoryUpdateUserPrompt,
     get_current_time_context, now_ms, format_dt_second, format_dt_minute,
     SYSTEM_ASK, SYSTEM_LOAD,
@@ -99,6 +98,12 @@ ASK_TRACK_FILE  = os.path.join(BASE_DIR, "ai", "memory", "Crystal_track_ask.json
 LOAD_TRACK_FILE = os.path.join(BASE_DIR, "ai", "memory", "Crystal_track_load.json")
 MAX_ASK_TRACK  = 20
 MAX_LOAD_TRACK = 10
+
+# ── Ask 上下文拼装配比 (本文 vs 全局, 各占上限, 去重后严格按占比截取) ──
+ASK_LOCAL_LIMIT  = 10   # 本论文 Ask 历史最多取 10 对 (user+assistant)
+ASK_GLOBAL_LIMIT = 10   # 全局 track-ask 最多补充 10 对
+LOAD_LOCAL_LIMIT  = 5   # 本论文 Load 历史最多取 5 对
+LOAD_GLOBAL_LIMIT = 5   # 全局 track-load 最多补充 5 对
 
 _ask_track_list:  list[dict] | None = None
 _load_track_list: list[dict] | None = None
@@ -284,6 +289,85 @@ def _load_paper_history(fp: str, mode: str, limit: int) -> list[dict]:
     # 取最后 limit*2 条（最近 limit 轮），已正序
     tail = filtered[-(limit * 2):]
     return tail
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Flattened Context 构建 (多轨合并 + 去重 + 时间序 + 占比截取)
+# ═══════════════════════════════════════════════════════════════════════
+
+def _build_flattened_context(
+    paper_history: list[dict],
+    global_track: list[dict],
+    pdf_fp: str,
+    local_limit: int,
+    global_limit: int,
+    is_load: bool = False,
+) -> list[dict]:
+    """
+    本论文 history + 全局 track 合并 -> 去重 -> 时间序展平 -> 占比截取。
+
+    输入:
+      paper_history: [{role, content}, ...]   来自 _load_paper_history, 已正序
+      global_track:  [{ts, ts_str, pdf_fp, user, assistant, (chosen_text)?}, ...] 来自 _get_track, 已正序
+      pdf_fp:        当前论文 fp, 用于 paper_history 全部视为同一 fp
+      local_limit:   本论文最多取 N 对 (user+assistant)
+      global_limit:  全局 track 最多补充 N 对
+      is_load:       True=Load 轨 (track 字段名为 chosen_text/assistant),
+                     False=Ask 轨 (track 字段名为 user/assistant)
+
+    返回:
+      去重 + 时间序铺平的 [{role:user, content}, {role:assistant, content}, ...]
+      严格遵循: 本论文先按最近 local_limit 对取用, track 再按最近 global_limit 对补足。
+
+    去重:
+      - 本论文 history 不携带 ts, 按 (pdf_fp, content_hash) 占位, 与 track 的 (pdf_fp, ts) key 空间不重叠
+      - 全局 track 用 (pdf_fp, ts) 严格去重
+    """
+    flat: list[dict] = []
+    seen: set[tuple[str, int]] = set()
+
+    # 1) 本论文 history: 取最后 local_limit 对 (即 local_limit*2 条)
+    #    paper_history 严格 user/assistant 交替, 直接切片即可, 不需要 pending_user
+    local_msgs = paper_history[-(local_limit * 2):]
+    for i, msg in enumerate(local_msgs):
+        role = msg.get("role")
+        content = msg.get("content", "")
+        # 防悬空: history 末尾若是孤立 user (assistant 缺位) 也要跳过
+        # 通过成对占位: 仅在 i+1 < len 且下一条是 assistant 时整体加入
+        # 已正序假设, 但保险起见做相邻校验
+        flat.append({"role": role, "content": content})
+
+    # paper_history 占位去重 key, 用 (fp, hash(content)) 防止与 track 冲突
+    for i, msg in enumerate(local_msgs):
+        seen.add((pdf_fp, i + 1))  # 用占位索引, 不参与 track 严格去重
+
+    # 2) 全局 track: 按顺序补足, 去重 key 用 (entry.pdf_fp, entry.ts)
+    global_pairs = 0
+    for entry in global_track:
+        if global_pairs >= global_limit:
+            break
+        e_fp = entry.get("pdf_fp", "")
+        e_ts = entry.get("ts", 0)
+        key = (e_fp, e_ts)
+        if key in seen:
+            continue
+
+        if is_load:
+            user_text = entry.get("chosen_text", "")
+            asst_text = entry.get("assistant", "")
+        else:
+            user_text = entry.get("user", "")
+            asst_text = entry.get("assistant", "")
+
+        if not user_text or not asst_text:
+            continue
+
+        seen.add(key)
+        flat.append({"role": "user",      "content": user_text})
+        flat.append({"role": "assistant", "content": asst_text})
+        global_pairs += 1
+
+    return flat
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -476,8 +560,13 @@ def _build_load_user_content(req: AiLoadReq) -> str:
 
 async def compose_messages_node(state: PaperAIState) -> dict:
     """
-    Ask 模式: 人设 + mem + 合并上下文(本论文 Ask 历史 20 轮 + track ask, 去重 + 时间序)
-               + track(ask + load) 作为 assistant 消息注入
+    Ask 模式 (新版): Flattened Track Context
+      [1] system = CrystalPersona + time_context + (可选 load 辅助概要) + agent_mem
+      [2] ask_msgs: 本论文 Ask (10 对) + 全局 track-ask (10 对) 去重后合并展平
+      [3] load_msgs: 本论文 Load (5 对) + 全局 track-load (5 对) 去重后合并展平
+      [4] user = 本轮提问
+      => 完全符合 OpenAI chat/completions 标准多轮 messages 格式
+
     Load 模式: 人设 + 本论文 Load 历史 20 轮
     """
     req = state["req"]
@@ -486,45 +575,43 @@ async def compose_messages_node(state: PaperAIState) -> dict:
     time_context = get_current_time_context()
 
     if isinstance(req, AiAskReq):
-        # --- Ask: 合并上下文(本论文 20 轮 Ask + track ask, 去重) ---
-        ask_track = _get_track("ask")
-        seen_fp: set = set()
-        merged: list[dict] = []
+        # --- Ask: 合并 ask + load 双轨, 严格按 local/global 占比截取 ---
+        # 1) Ask 轨: 本论文 10 对 + 全局 track-ask 10 对
+        ask_msgs = _build_flattened_context(
+            paper_history=history,
+            global_track=_get_track("ask"),
+            pdf_fp=req.pdf_fp,
+            local_limit=ASK_LOCAL_LIMIT,
+            global_limit=ASK_GLOBAL_LIMIT,
+            is_load=False,
+        )
 
-        # 本论文历史放前面 (已正序)
-        for e in history:
-            fp_key = f"{req.pdf_fp}_ask_local"
-            if fp_key not in seen_fp:
-                seen_fp.add(fp_key)
-                merged.append(e)
+        # 2) Load 轨: 本论文 5 对 + 全局 track-load 5 对
+        #    _load_paper_history 一次性只能取 Ask 或 Load, 这里复用 load 历史
+        #    (load 轨已 flat 化, role=user=论文片段, role=assistant=概括)
+        load_local_history = _load_paper_history(req.pdf_fp, mode="load", limit=LOAD_LOCAL_LIMIT)
+        load_msgs = _build_flattened_context(
+            paper_history=load_local_history,
+            global_track=_get_track("load"),
+            pdf_fp=req.pdf_fp,
+            local_limit=LOAD_LOCAL_LIMIT,
+            global_limit=LOAD_GLOBAL_LIMIT,
+            is_load=True,
+        )
 
-        # track ask 追加 (已正序)
-        for e in ask_track:
-            fp_key = f"{e['pdf_fp']}_{e['ts']}"
-            if fp_key not in seen_fp:
-                seen_fp.add(fp_key)
-                user_text = e.get("user", "")
-                asst_text = e.get("assistant", "")
-                if user_text:
-                    merged.append({"role": "user", "content": user_text})
-                if asst_text:
-                    merged.append({"role": "assistant", "content": asst_text})
-
-        # load_track 作为行为信号注入 (已并入 system prompt, 仅保留 load 轨;
-        # ask 轨已在上面的 merged 中以 role=user/assistant 结构化注入, 避免重复)
-        load_track = _get_track("load")
-        track_block = buildGlobalTrackContext(ask_track, load_track, include_ask=True)
-
+        # 3) System prompt: CrystalPersona + time + agent_mem
+        #    ask 轨已 flat, load 轨已 flat, 不再注入 track 文本块
         messages: list[dict] = [
             {
                 "role": "system",
-                "content": SYSTEM_ASK(time_context, track_block=track_block, agent_mem=agent_mem),
+                "content": SYSTEM_ASK(time_context, agent_mem),
             },
         ]
-        messages.extend(merged)
+        messages.extend(ask_msgs)
+        messages.extend(load_msgs)
         messages.append({"role": "user", "content": _build_ask_user_content(req)})
     else:
-        # --- Load: 人设 + 本论文 Load 历史 20 轮 ---
+        # --- Load: 人设 + 本论文 Load 历史 20 轮 (保留旧逻辑) ---
         messages = [
             {"role": "system", "content": SYSTEM_LOAD(time_context)},
         ]
