@@ -124,16 +124,32 @@ def format_dt_second(ts_ms: int) -> str:
 # System Prompt 模板
 # ═══════════════════════════════════════════════════════════════════════
 
-def SYSTEM_ASK(time_context: str) -> str:
-    """Ask 模式 system prompt: CrystalPersona + 时间感知 + 当前任务(用户提问)"""
-    return (
-        CrystalPersona()
-        + "\n\n"
-        + time_context
-        + "\n\n"
-        + "【当前任务】\n"
-        + "用户正在阅读学术论文并向你提问。结合论文上下文和记忆，回答用户的问题。"
+def SYSTEM_ASK(
+    time_context: str,
+    track_block: str = "",
+    agent_mem: str = "",
+) -> str:
+    """
+    Ask 模式 system prompt: CrystalPersona + 时间感知 + 当前任务(用户提问)
+
+    track_block / agent_mem 并入 system content，消除 assistant role 破坏交替的问题。
+    """
+    content = CrystalPersona() + "\n\n" + time_context
+
+    if track_block:
+        content += "\n\n" +  "【跨论文轨迹, 仅供参考】\n" + track_block
+
+    if agent_mem:
+        content += (
+            "\n\n【关于这位用户的认知(Crystal 私人笔记, 不要对用户直述)】\n"
+            + agent_mem
+        )
+
+    content += (
+        "\n\n【当前任务】\n"
+        "结合上下文和记忆, 回答用户的问题。"
     )
+    return content
 
 
 def SYSTEM_LOAD(time_context: str) -> str:
@@ -195,7 +211,8 @@ def buildAskMessages(
       time_context:  时间感知上下文（包含当前时间和时间查询工具说明）
 
     track 注入不在此处 — 由调用方 compose_messages_node 负责
-      (在 paper_history 之后、本轮 user 之前插入 role=assistant 消息)
+      (track_block 通过 SYSTEM_ASK 参数并入 system content, 避免
+       role=assistant 消息破坏 user/assistant 严格交替)
 
     返回: OpenAI 格式的 messages 数组
       [
@@ -328,46 +345,50 @@ def buildMemoryUpdateUserPrompt(
     user_msg: str,
     assistant_msg: str,
     current_timestamp: str = "",
-    track: list[dict] | None = None,
+    ask_track: list[dict] | None = None,
+    load_track: list[dict] | None = None,
 ) -> str:
     """
     构造 update_crystal_memory 的 user prompt:
-      - 静态头部: MEMORY_UPDATE_USER_HEADER (含时间戳规则 + 输出指令, 一次性说清楚)
-      - 动态块:
-        * 当前 Crystal_mem.md 内容
-        * 跨论文最近 N 条 Ask 轨迹 (track) — 提供全局上下文
-        * 本轮对话 (user_msg / assistant_msg)
-        * 本次更新时刻 (current_timestamp)
+      - 静态头部: MEMORY_UPDATE_USER_HEADER (含时间戳规则 + 输出指令)
+      - 动态块: 当前笔记 + 双轨 track (ask + load) + 本轮对话 + 更新时间戳
 
-    参数:
-      current_timestamp: 本次更新时刻字符串 (格式 "YYYY-MM-DD HH:MM"),
-                         传 "" 时不带时间戳。
-
-      track: 跨论文全局 Ask 轨迹 (最近 20 条),
-             None 或 [] 表示不附加 track 上下文。
-             替代原来的 intermediate_history —— track 已经覆盖了
-             "上次 Ask 到本轮之间" 的所有 Ask 全局提问脉络,
-             比 intermediate_history (只覆盖单论文 user/assistant 完整记录)
-             信息更聚焦、更新成本更低。
-      user_msg / assistant_msg: 本轮 Ask 的用户提问 + Crystal 回答 (用作本次更新主素材)
+    ask_track / load_track: 跨论文全局轨迹, 提供全局上下文。
     """
-    track_section = ""
-    if track:
-        track_lines = []
-        for i, entry in enumerate(track):
+    def _fmt_track(
+        entries: list[dict],
+        label: str,
+        short_key: str,
+        truncate_user: bool = True,
+        truncate_assistant: bool = True,
+        asst_limit: int = 120,
+    ) -> str:
+        if not entries:
+            return ""
+        lines = [f"\n【跨论文{label}轨迹, 仅供参考】"]
+        for i, entry in enumerate(entries):
             ts_str = entry.get("ts_str") or ""
             pdf_short = entry.get("pdf_fp", "")[:8]
-            user_q = (entry.get("user") or "").replace("\n", " ")[:80]
-            asst_a = (entry.get("assistant") or "").replace("\n", " ")[:120]
+            raw_val = (entry.get(short_key) or "").replace("\n", " ")
+            val = raw_val[:80] if truncate_user else raw_val
+            raw_asst = (entry.get("assistant") or "").replace("\n", " ")
+            asst_a = raw_asst[:asst_limit] if truncate_assistant else raw_asst
             prefix = f"[{ts_str}] " if ts_str else ""
-            track_lines.append(f"- {i + 1}. {prefix}[{pdf_short}] 用户:「{user_q}」")
+            lines.append(f"- {i+1}. {prefix}[{pdf_short}] 用户:「{val}」")
             if asst_a:
-                track_lines.append(f"          Crystal: {asst_a}...")
-        track_section = (
-            "\n【跨论文对话轨迹(最近若干条 Ask, 提供全局上下文)】\n"
-            + "\n".join(track_lines)
-            + "\n"
-        )
+                lines.append(f"          Crystal: {asst_a}...")
+        return "\n".join(lines)
+
+    # Ask 轨: user/assistant 均不截断, 供记忆抽取用
+    ask_section  = _fmt_track(
+        ask_track  or [], "Ask",  "user",
+        truncate_user=False, truncate_assistant=False,
+    )
+    # Load 轨: user/assistant 统一截断 100
+    load_section = _fmt_track(
+        load_track or [], "Load", "chosen_text",
+        truncate_user=True, truncate_assistant=True, asst_limit=100,
+    )
 
     timestamp_section = ""
     if current_timestamp:
@@ -392,7 +413,8 @@ def buildMemoryUpdateUserPrompt(
         MEMORY_UPDATE_USER_HEADER()
         + "\n\n"
         + memory_block
-        + track_section
+        + ask_section
+        + load_section
         + this_turn_block
         + timestamp_section
     )
@@ -402,30 +424,50 @@ def buildMemoryUpdateUserPrompt(
 # Crystal_track (跨论文 Ask 全局追踪) 相关 Prompt
 # ═══════════════════════════════════════════════════════════════════════
 
-def buildGlobalTrackContext(track: list[dict]) -> str:
+def buildGlobalTrackContext(
+    ask_track: list[dict] | None = None,
+    load_track: list[dict] | None = None,
+    include_ask: bool = True,
+) -> str:
     """
-    把全局 track 格式化为 assistant 角色的对话历史文本,
-    让 LLM 在 assistant 位置上"看到"自己过去的发言脉络。
+    把双轨 track 格式化为 system/上下文文本。
 
-    track 格式: [{ts, ts_str, pdf_fp, user, assistant}, ...]
-      - ts:      毫秒级 Unix 时间戳 (int)
-      - ts_str:  可读时间字符串 "YYYY-MM-DD HH:MM:SS" (新增字段, 向后兼容 — 老数据可能没有)
+    ask_track 格式: [{ts, ts_str, pdf_fp, user, assistant}, ...]
+    load_track 格式: [{ts, ts_str, pdf_fp, chosen_text, assistant}, ...]
+
+    include_ask=False 时不输出 Ask 轨, 用于 Ask 模式 system prompt
+    (此时 Ask 轨已通过 messages 的 role=user/assistant 结构化注入,
+    无需在 system 中重复摘要, 避免信息冗余干扰话题连续性)。
     """
-    if not track:
-        return ""
+    lines = []
 
-    # 顶部说明: 这是历史记录, 不是当前指令
-    lines = [
-        "【以下是我(Crystal)之前和用户交流的全局对话记录摘要, 仅供参考】",
-    ]
-    for i, entry in enumerate(track):
-        ts_str = entry.get("ts_str") or ""
-        pdf_short = entry.get("pdf_fp", "")[:8]
-        user_q = (entry.get("user") or "").replace("\n", " ")[:80]
-        asst_a = (entry.get("assistant") or "").replace("\n", " ")[:80]
-        prefix = f"[{ts_str}] " if ts_str else ""
-        lines.append(f"- {i + 1}. {prefix}[{pdf_short}] 用户:「{user_q}」")
-        if asst_a:
-            lines.append(f"          Crystal曾回复: {asst_a}")
+    # Ask 轨 (user 不截断, assistant 仍截断 80 控制 prompt 长度)
+    if include_ask and ask_track:
+        lines.append("【以下是我(Crystal)之前和用户交流的全局对话记录摘要, 仅供参考】")
+        for i, entry in enumerate(ask_track):
+            ts_str = entry.get("ts_str") or ""
+            pdf_short = entry.get("pdf_fp", "")[:8]
+            user_q = (entry.get("user") or "").replace("\n", " ")
+            asst_a = (entry.get("assistant") or "").replace("\n", " ")[:80]
+            prefix = f"[{ts_str}] " if ts_str else ""
+            lines.append(f"- {i + 1}. {prefix}[{pdf_short}] 用户曾经询问:「{user_q}」")
+            if asst_a:
+                lines.append(f"          Crystal曾回复: {asst_a}")
+
+    # Load 轨 (始终保留, 作为行为信号)
+    if load_track:
+        if lines:
+            lines.append("")
+        lines.append("【用户在各论文中划词总结的历史(行为信号)】")
+        for i, entry in enumerate(load_track):
+            ts_str = entry.get("ts_str") or ""
+            pdf_short = entry.get("pdf_fp", "")[:8]
+            chosen = (entry.get("chosen_text") or "").replace("\n", " ")[:80]
+            asst_a = (entry.get("assistant") or "").replace("\n", " ")[:80]
+            prefix = f"[{ts_str}] " if ts_str else ""
+            lines.append(f"- {i + 1}. {prefix}[{pdf_short}] 用户划词摘要:「{chosen}」")
+            if asst_a:
+                lines.append(f"          Crystal曾回复: {asst_a}")
+
     return "\n".join(lines)
 

@@ -21,11 +21,12 @@ from typing import TypedDict, Optional, Any
 
 import httpx
 
-from .ai_models import AiAskReq, AiLoadReq, AiResp
+from .ai_models import AiAskReq, AiLoadReq, AiResp, AiPaperEntry
 from .prompts import (
-    buildAskMessages, buildLoadMessages, buildGlobalTrackContext,
+    buildGlobalTrackContext,
     MEMORY_UPDATE_SYSTEM, buildMemoryUpdateUserPrompt,
     get_current_time_context, now_ms, format_dt_second, format_dt_minute,
+    SYSTEM_ASK, SYSTEM_LOAD,
 )
 from utils.log import debug
 
@@ -92,86 +93,111 @@ def _set_agent_memory_cache(md: str) -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Crystal_track (跨论文 Ask 全局追踪) — 缓存 + 读写函数
+# Crystal_track (跨论文 Ask+Load 全局追踪) — 双轨缓存 + 读写函数
 # ═══════════════════════════════════════════════════════════════════════
-CRYSTAL_TRACK_FILE = os.path.join(BASE_DIR, "ai", "memory", "Crystal_track.json")
-MAX_TRACK_SIZE = 20
-_agent_track_list: list[dict] | None = None      # None = 未加载
-_agent_track_dirty: bool = False                  # True = 有 append 待写盘
+ASK_TRACK_FILE  = os.path.join(BASE_DIR, "ai", "memory", "Crystal_track_ask.json")
+LOAD_TRACK_FILE = os.path.join(BASE_DIR, "ai", "memory", "Crystal_track_load.json")
+MAX_ASK_TRACK  = 20
+MAX_LOAD_TRACK = 10
+
+_ask_track_list:  list[dict] | None = None
+_load_track_list: list[dict] | None = None
+_ask_dirty:  bool = False
+_load_dirty: bool = False
 
 
-def _get_track() -> list[dict]:
+def _get_track(mode: str) -> list[dict]:
     """
-    读 agent_track 缓存 (懒加载)。
-    首次调用时同步加载磁盘内容, 返回内部 cache 引用 (调用方不应原地修改!)。
-    如果要追加请用 _append_track()。
+    读 track 缓存 (懒加载)。
+    mode: "ask" | "load"
+    返回内部 cache 引用 (调用方不应原地修改!)
     """
-    global _agent_track_list
-    if _agent_track_list is None:
-        _ensure_memory_dir()
-        if os.path.exists(CRYSTAL_TRACK_FILE):
+    global _ask_track_list, _load_track_list
+    _ensure_memory_dir()
+
+    track_file = ASK_TRACK_FILE if mode == "ask" else LOAD_TRACK_FILE
+    track_list_ref = (_ask_track_list  if mode == "ask"  else _load_track_list)
+
+    if track_list_ref is None:
+        if os.path.exists(track_file):
             try:
-                with open(CRYSTAL_TRACK_FILE, "r", encoding="utf-8") as f:
+                with open(track_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
                 if isinstance(data, list):
-                    _agent_track_list = data[-MAX_TRACK_SIZE:]
+                    if mode == "ask":
+                        _ask_track_list = data[-MAX_ASK_TRACK:]
+                    else:
+                        _load_track_list = data[-MAX_LOAD_TRACK:]
                 else:
-                    _agent_track_list = []
+                    if mode == "ask":
+                        _ask_track_list = []
+                    else:
+                        _load_track_list = []
             except (json.JSONDecodeError, OSError):
-                _agent_track_list = []
+                if mode == "ask":
+                    _ask_track_list = []
+                else:
+                    _load_track_list = []
         else:
-            _agent_track_list = []
-    return _agent_track_list
+            if mode == "ask":
+                _ask_track_list = []
+            else:
+                _load_track_list = []
+
+    return _ask_track_list if mode == "ask" else _load_track_list
 
 
-def _set_track_cache(track: list[dict]) -> None:
-    """外部 (如 reload/清空) 同步刷新缓存。"""
-    global _agent_track_list, _agent_track_dirty
-    _agent_track_list = list(track)
-    _agent_track_dirty = True  # 缓存与磁盘不一定一致, 标 dirty 待下次 flush
-
-
-def _append_track(entry: dict) -> None:
+def _append_track(mode: str, entry: dict) -> None:
     """
-    追加一条 Ask 记录到 cache, FIFO 裁剪到最多 20 条。
+    追加一条记录到 cache (ask 或 load), FIFO 裁剪。
 
-    注意: 此函数只改内存 cache + 标记 dirty, 不立即写盘!
-    写盘由 flush_track_node 在对话结束后统一执行 (避免高频小 I/O)。
-
-    异常静默: track 是锦上添花, 不影响主链路。
+    注意: 只改内存 cache + 标 dirty, 不立即写盘!
+    写盘由 flush_track_node 在对话结束后统一执行。
     """
-    global _agent_track_dirty
-    try:
-        track = list(_get_track())  # 复制一份, 避免外部拿到引用后被我们原地改
-        track.append(entry)
-        # FIFO 裁剪到最近 20 条 (防止 cache 无限增长)
-        if len(track) > MAX_TRACK_SIZE:
-            track = track[-MAX_TRACK_SIZE:]
-        _set_track_cache(track)
-        _agent_track_dirty = True
-        debug(f"[crystal_track] APPEND cached: fp={entry.get('pdf_fp', '')[:8]} total={len(track)}")
-    except Exception as e:  # noqa: BLE001 — track 锦上添花, 不可阻塞主链路
-        debug(f"[crystal_track] APPEND FAIL (cache): {e}")
+    global _ask_dirty, _load_dirty
+    track = list(_get_track(mode))  # 复制
+    max_size = MAX_ASK_TRACK if mode == "ask" else MAX_LOAD_TRACK
+    track.append(entry)
+    if len(track) > max_size:
+        track = track[-max_size:]
+    if mode == "ask":
+        global _ask_track_list
+        _ask_track_list = track
+        _ask_dirty = True
+    else:
+        global _load_track_list
+        _load_track_list = track
+        _load_dirty = True
+    debug(f"[crystal_track] APPEND cached: mode={mode} fp={entry.get('pdf_fp', '')[:8]} total={len(track)}")
 
 
-def _flush_track_to_disk() -> None:
+def _flush_track_to_disk(mode: str) -> None:
     """
-    把内存 cache 写回 Crystal_track.json (覆盖式)。
-    仅在 dirty=True 时执行 — 减少无谓写盘。
-    异常静默: track 是锦上添花, 写盘失败不应影响主链路 (下次冷启动时 cache 会回读旧数据)。
+    把内存 cache 写回对应 track 文件 (覆盖式)。
+    仅在 dirty=True 时执行。
     """
-    global _agent_track_dirty
-    if not _agent_track_dirty:
-        return
+    if mode == "ask":
+        global _ask_dirty
+        if not _ask_dirty:
+            return
+        track = _get_track("ask")
+        track_to_write = track[-MAX_ASK_TRACK:]
+        track_file = ASK_TRACK_FILE
+        _ask_dirty = False
+    else:
+        global _load_dirty
+        if not _load_dirty:
+            return
+        track = _get_track("load")
+        track_to_write = track[-MAX_LOAD_TRACK:]
+        track_file = LOAD_TRACK_FILE
+        _load_dirty = False
+
     try:
         _ensure_memory_dir()
-        track = _get_track()
-        # 再裁一次, 防止历史 cache 异常增长
-        track_to_write = track[-MAX_TRACK_SIZE:]
-        with open(CRYSTAL_TRACK_FILE, "w", encoding="utf-8") as f:
+        with open(track_file, "w", encoding="utf-8") as f:
             json.dump(track_to_write, f, ensure_ascii=False)
-        _agent_track_dirty = False
-        debug(f"[crystal_track] FLUSH ok: total={len(track_to_write)}")
+        debug(f"[crystal_track] FLUSH ok: mode={mode} total={len(track_to_write)}")
     except OSError as e:
         debug(f"[crystal_track] FLUSH FAIL: {e}")
 
@@ -185,40 +211,79 @@ def _paper_history_path(pdf_fp: str) -> str:
     return os.path.join(SAVE_DIR, f"{pdf_fp}_ai.json")
 
 
-def _load_paper_history(fp: str, limit: int) -> list[dict]:
-    """
-    读 save/{fp}_ai.json, 返回最近 limit 轮的 messages (OpenAI 格式)。
+def _read_json_safe(path: str, default: Any) -> Any:
+    """读 JSON 文件，异常静默返回 default。"""
+    if not os.path.exists(path):
+        return default
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return default
 
-    - 每轮 = 1 条 user + 1 条 assistant (limit 轮 = limit*2 条 entry)
-    - 按 ts 倒序截取后 reverse 回正序 (OpenAI 要求时间正序)
-    - limit=0 或文件不存在 / 异常 → 返回 []
-    - 不影响主链路, 异常静默
+
+def _load_paper_history(fp: str, mode: str, limit: int) -> list[dict]:
+    """
+    读 save/{fp}_ai.json, 按 mode 取对应 entry, 返回 OpenAI 格式 messages。
+
+    参数:
+      fp:    论文指纹
+      mode:  "load" → ReqLoad/ResLoad; "ask" → ReqAsk/ResAsk
+      limit: 最大轮次 (每轮 2 条)
+
+    返回: [{role: "user"|"assistant", content: str}, ...] 正序
+
+    过滤规则:
+      1. Anno entry: 完全屏蔽, 不参与任何加载
+      2. Vision Ask (img 非空): 屏蔽, 不进入上下文也不进入 track
+         (Vision Ask 正常写盘，但不参与加载)
     """
     if limit <= 0:
         return []
     path = _paper_history_path(fp)
-    if not os.path.exists(path):
+    data = _read_json_safe(path, [])
+    if not isinstance(data, list):
         return []
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        if not isinstance(data, list):
-            return []
-        # data: [{role, content, ts}, ...] — 按 ts 已经正序
-        # 取最后 limit*2 条 (即最近 limit 轮), 反转为正序
-        tail = data[-(limit * 2):]
-        # 仅保留 role+content (剥掉 ts, 防止脏数据塞进 messages)
-        cleaned = []
-        for e in tail:
-            if not isinstance(e, dict):
-                continue
-            role = e.get("role")
-            content = e.get("content")
-            if role in ("user", "assistant") and isinstance(content, str):
-                cleaned.append({"role": role, "content": content})
-        return cleaned
-    except (json.JSONDecodeError, OSError):
-        return []
+
+    type_map = {
+        "ReqLoad": "user",
+        "ResLoad": "assistant",
+        "ReqAsk":  "user",
+        "ResAsk":  "assistant",
+    }
+    if mode == "load":
+        targets = {"ReqLoad", "ResLoad"}
+    else:
+        targets = {"ReqAsk", "ResAsk"}
+
+    filtered = []
+    skip_next_res = False  # 标记跳过同 ts 的 ResAsk
+    for e in data:
+        if not isinstance(e, dict):
+            continue
+        t = e.get("type", "")
+
+        # 规则 1: Anno 屏蔽
+        if t == "Anno":
+            continue
+
+        # 规则 2: Vision Ask 屏蔽 (img 非空 = 带图片)
+        if t == "ReqAsk" and e.get("img"):
+            skip_next_res = True
+            continue
+        if skip_next_res and t == "ResAsk":
+            skip_next_res = False
+            continue
+
+        if t not in targets:
+            continue
+        content = e.get("content")
+        if isinstance(content, str):
+            filtered.append({"role": type_map[t], "content": content})
+
+    # 取最后 limit*2 条（最近 limit 轮），已正序
+    tail = filtered[-(limit * 2):]
+    return tail
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -354,63 +419,117 @@ async def load_agent_memory_node(state: PaperAIState) -> dict:
 
 async def load_paper_history_node(state: PaperAIState) -> dict:
     """
-    按 req 类型决定取多少轮 paper history:
-      - Ask 模式: 20 轮 (40 条 entry)
-      - Load 模式: 10 轮 (20 条 entry)
-    不分 mode, Ask/Load 全部加载, 按时间倒序截取后 reverse 回正序。
+    按 req 类型决定取哪类 paper history:
+      - Ask 模式: 本论文 Ask 历史 (mode="ask", 20 轮),
+                 后续 compose_messages_node 再合并 track ask
+      - Load 模式: 本论文 Load 历史 (mode="load", 20 轮)
+    Vision Ask 和 Anno 在 _load_paper_history 内部已过滤。
     """
     req = state["req"]
-    limit = 20 if isinstance(req, AiAskReq) else 10
-    history = _load_paper_history(req.pdf_fp, limit)
-    debug(f"[paper_history] loaded: fp={req.pdf_fp} mode={'ask' if isinstance(req, AiAskReq) else 'load'} rounds={len(history)//2}")
+    if isinstance(req, AiAskReq):
+        history = _load_paper_history(req.pdf_fp, mode="ask", limit=20)
+        debug(f"[paper_history] ask: fp={req.pdf_fp} ask_rounds={len(history)//2}")
+    else:
+        history = _load_paper_history(req.pdf_fp, mode="load", limit=20)
+        debug(f"[paper_history] load: fp={req.pdf_fp} load_rounds={len(history)//2}")
     return {"paper_history": history}
+
+
+def _build_ask_user_content(req: AiAskReq) -> str | list[dict]:
+    """构建 Ask 本轮 user content (纯文本或 vision 多模态)。"""
+    if req.image_base64 is not None:
+        suffix = (
+            "请回答用户的询问：" + req.ask
+            if req.ask.strip()
+            else "对图片进行解释"
+        )
+        return [
+            {"type": "text", "text": "针对给定图片" + suffix},
+            {"type": "image_url", "image_url": {"url": req.image_base64}},
+        ]
+    else:
+        if not req.quotes:
+            return req.ask
+        quote_lines = "\n".join(
+            f"{i + 1}.{q.get('quote_msg', '')}"
+            for i, q in enumerate(req.quotes)
+        )
+        return (
+            f"用户引用的内容：\n{quote_lines}\n\n"
+            f"用户引用的解释：{req.quote_content}\n\n"
+            f"用户的询问【{req.ask}】"
+        )
+
+
+def _build_load_user_content(req: AiLoadReq) -> str:
+    """构建 Load 本轮 user content。"""
+    instruction = "用中文准确概括" if req.added_prompt == "" else req.added_prompt
+    return (
+        f"请结合上下文和之前的论文内容，将学术内容【{req.chosen_text}】{instruction}，要求如下：\n"
+        "- 概括内容简短、简洁明了，突出重点，合理分段或者分点，无需额外说明，不要输出其它内容\n"
+        "- 仅在确有必要时进行分条列点，避免分条过细\n"
+        "- 对于重要的专业术语，中文翻译后markdown加粗并附全称，"
+        "例如：中文(缩写, 英文全称)，但此后再出现相同术语不再附加全称\n"
+        "- 对于公式，请在公式后用markdown引用格式解释公式含义或变量解释，不要在其他地方重复解释\n"
+    )
 
 
 async def compose_messages_node(state: PaperAIState) -> dict:
     """
-    根据 req 类型 (Ask / Load) 调用 buildAskMessages / buildLoadMessages 组装 messages。
-    Ask 模式额外把 Crystal_memory.md 内容追加到 system prompt 末尾。
-    Ask 模式还会把跨论文全局 track (Crystal_track.json, 最近 20 条)
-    作为 assistant 角色消息注入 (在 paper_history 之后、本轮 user 之前),
-    让 LLM 在 assistant 位置上感知全局提问脉络。
-    Load 模式不注入 agent_memory 也不注入 track。
+    Ask 模式: 人设 + mem + 合并上下文(本论文 Ask 历史 20 轮 + track ask, 去重 + 时间序)
+               + track(ask + load) 作为 assistant 消息注入
+    Load 模式: 人设 + 本论文 Load 历史 20 轮
     """
     req = state["req"]
     history = state.get("paper_history") or []
     agent_mem = state.get("agent_memory") or ""
-
-    # 动态生成时间上下文
     time_context = get_current_time_context()
 
-    # 注入 Ask 模式的 track (作为 assistant 角色的对话历史消息 ——
-    # 注入位置放在 paper_history 之后、本轮 user 之前, 保持历史对话连贯性)
-    track_block = ""
     if isinstance(req, AiAskReq):
-        track = _get_track()
-        if track:
-            track_block = buildGlobalTrackContext(track)
+        # --- Ask: 合并上下文(本论文 20 轮 Ask + track ask, 去重) ---
+        ask_track = _get_track("ask")
+        seen_fp: set = set()
+        merged: list[dict] = []
 
-    if isinstance(req, AiAskReq):
-        messages = buildAskMessages(req, history, time_context)
-    elif isinstance(req, AiLoadReq):
-        messages = buildLoadMessages(req, history, time_context)
+        # 本论文历史放前面 (已正序)
+        for e in history:
+            fp_key = f"{req.pdf_fp}_ask_local"
+            if fp_key not in seen_fp:
+                seen_fp.add(fp_key)
+                merged.append(e)
+
+        # track ask 追加 (已正序)
+        for e in ask_track:
+            fp_key = f"{e['pdf_fp']}_{e['ts']}"
+            if fp_key not in seen_fp:
+                seen_fp.add(fp_key)
+                user_text = e.get("user", "")
+                asst_text = e.get("assistant", "")
+                if user_text:
+                    merged.append({"role": "user", "content": user_text})
+                if asst_text:
+                    merged.append({"role": "assistant", "content": asst_text})
+
+        # load_track 作为行为信号注入 (已并入 system prompt, 仅保留 load 轨;
+        # ask 轨已在上面的 merged 中以 role=user/assistant 结构化注入, 避免重复)
+        load_track = _get_track("load")
+        track_block = buildGlobalTrackContext(ask_track, load_track, include_ask=True)
+
+        messages: list[dict] = [
+            {
+                "role": "system",
+                "content": SYSTEM_ASK(time_context, track_block=track_block, agent_mem=agent_mem),
+            },
+        ]
+        messages.extend(merged)
+        messages.append({"role": "user", "content": _build_ask_user_content(req)})
     else:
-        raise ValueError(f"Unknown req type: {type(req)}")
-
-    # Ask 模式把 track 作为 assistant 消息插入 (在 paper_history 之后、本轮 user 之前)
-    if track_block:
-        # messages 结构: [system, ...paper_history, user(本轮)]
-        # 插入位置: paper_history 末尾之后、本轮 user 之前
-        # 即 -2 位置 (因为末尾是本轮 user)
-        insert_idx = len(messages) - 1
-        messages.insert(insert_idx, {"role": "assistant", "content": track_block})
-
-    # Ask 模式才注入 agent memory — 拼到 system 消息末尾
-    if isinstance(req, AiAskReq) and agent_mem:
-        messages[0]["content"] = messages[0]["content"] + (
-            "\n\n【关于这位用户的认知(Crystal 私人笔记, 不要对用户直述)】\n"
-            + agent_mem
-        )
+        # --- Load: 人设 + 本论文 Load 历史 20 轮 ---
+        messages = [
+            {"role": "system", "content": SYSTEM_LOAD(time_context)},
+        ]
+        messages.extend(history)
+        messages.append({"role": "user", "content": _build_load_user_content(req)})
 
     return {"messages": messages}
 
@@ -441,81 +560,116 @@ async def llm_call_node(state: PaperAIState) -> dict:
 
 
 async def save_paper_memory_node(state: PaperAIState) -> dict:
-    """把本轮 user + assistant 追加写入 save/{fp}_ai.json (ADD 模式)"""
+    """
+    把本轮 user + assistant 追加写入 save/{fp}_ai.json (新 schema 格式)。
+
+    写两条 entry: ReqAsk/ReqLoad + ResAsk/ResLoad, 统一用 AiPaperEntry 格式。
+    Vision Ask 正常写盘（供前端渲染），但不在上下文加载时被 pickup（由 _load_paper_history 过滤）。
+    """
     req = state["req"]
     fp = req.pdf_fp
     answer = state["final_answer"]
+    usage = state.get("usage") or {}
+    token_count = usage.get("total_tokens")
 
-    # Ask 模式有 req.ask; Load 模式用 req.chosen_text 充当 user 文本
+    ts = now_ms()
+    dt_str = format_dt_second(ts)
+
+    # --- Req entry ---
     if isinstance(req, AiAskReq):
-        user_text = req.ask
+        req_entry = {
+            "type": "ReqAsk",
+            "content": req.ask,
+            "ts": ts,
+            "dt": dt_str,
+            "hl": getattr(req, "hl", None),
+            "quote_gids": [
+                q.get("quote_gid") for q in (req.quotes or [])
+                if isinstance(q, dict) and q.get("quote_gid")
+            ],
+            "img": getattr(req, "image_filename", "") or "",
+        }
     else:
-        user_text = req.chosen_text
+        req_entry = {
+            "type": "ReqLoad",
+            "content": req.chosen_text,
+            "ts": ts,
+            "dt": dt_str,
+        }
 
+    # --- Res entry ---
+    res_type = "ResAsk" if isinstance(req, AiAskReq) else "ResLoad"
+    res_entry = {
+        "type": res_type,
+        "content": answer,
+        "ts": ts + 1,
+        "dt": dt_str,
+        "token_count": token_count,
+    }
+
+    # --- 读 + 追加 + 写盘 ---
     path = _paper_history_path(fp)
-    # 节点间不共享 paper_messages,这里直接读磁盘,确保多请求并发也只追加自己的两条
-    history: list = []
-    if os.path.exists(path):
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            if isinstance(data, list):
-                history = data
-        except (json.JSONDecodeError, OSError):
-            pass
-
-    now_ms_paper = now_ms()
-    history.append({"role": "user", "content": user_text, "ts": now_ms_paper})
-    history.append({"role": "assistant", "content": answer, "ts": now_ms_paper + 1})
+    history: list = _read_json_safe(path, [])
+    history.append(req_entry)
+    history.append(res_entry)
 
     try:
         with open(path, "w", encoding="utf-8") as f:
             json.dump(history, f, ensure_ascii=False)
-        debug(f"[ai_agent] save_paper_memory ok: fp={fp} len={len(history)}")
+        debug(f"[save_paper_memory] ok: fp={fp} total={len(history)}")
     except OSError as e:
-        debug(f"[ai_agent] save_paper_memory FAIL: {e} | fp={fp}")
+        debug(f"[save_paper_memory] FAIL: {e} | fp={fp}")
 
     return {}
 
 
+
 async def update_agent_memory_node(state: PaperAIState) -> dict:
     """
-    Ask 模式: 异步触发, 用全局 track (Crystal_track.json) 作为辅助上下文,
-              加上本轮 req.ask + final_answer 作为核心更新依据。
-    Load 模式: 不更新 Crystal_memory.md(划词不维护持久化记忆)。
+    Ask 模式:
+      - 非 Vision: 追加到 ask_track cache + 异步写 Crystal_memory.md
+      - Vision Ask (img 非空): 不进 track，不写 mem
+    Load 模式:
+      - 追加到 load_track cache (行为信号)
     """
     req = state["req"]
     answer = state["final_answer"]
+    ts = now_ms()
+    dt_str = format_dt_second(ts)
+    fp = req.pdf_fp
 
     if isinstance(req, AiAskReq):
-        user_msg = req.ask
-        # 异步执行, 不 await
-        task = asyncio.create_task(
-            _update_crystal_memory_async(user_msg, answer)
-        )
-        debug(
-            f"[crystal_memory] scheduled [ask]: "
-            f"user_len={len(user_msg)} asst_len={len(answer)} "
-            f"task_id={id(task)}"
-        )
+        is_vision = bool(getattr(req, "image_filename", ""))
 
-        # 同步追加到全局 track cache (Ask 完成后, 立即追加一条跨论文记录)
-        # 注意: 只改内存 cache + 标 dirty, 不立即写盘!
-        # 写盘由 flush_track_node 在对话结束后统一执行 (避免高频小 I/O)。
-        try:
-            ts = now_ms()
-            _append_track({
-                "ts": ts,                                                  # 毫秒级 Unix 时间戳 (单源 now_ms())
-                "ts_str": format_dt_second(ts),                            # 秒级可读: YYYY-MM-DD HH:MM:SS (北京)
-                "pdf_fp": req.pdf_fp,
-                "user": user_msg[:200],
+        if not is_vision:
+            # 非 Vision: 进 ask_track (过滤规则)
+            _append_track("ask", {
+                "ts": ts,
+                "ts_str": dt_str,
+                "pdf_fp": fp,
+                "user": req.ask[:200],
                 "assistant": answer[:200],
             })
-        except Exception as e:
-            debug(f"[crystal_track] FAIL (non-fatal): {e}")
+
+        # Mem 写: Vision Ask 也异步写 mem（不阻塞，不影响主链路）
+        task = asyncio.create_task(
+            _update_crystal_memory_async(req.ask, answer, dt_str)
+        )
+        debug(
+            f"[crystal_memory] scheduled [ask]: vision={is_vision} "
+            f"user_len={len(req.ask)} asst_len={len(answer)} "
+            f"task_id={id(task)}"
+        )
     else:
-        # Load 模式: 不维护 Crystal_memory.md, 也不追加 track
-        debug("[crystal_memory] skipped [load]")
+        # Load 模式: 进 load_track (行为信号)
+        _append_track("load", {
+            "ts": ts,
+            "ts_str": dt_str,
+            "pdf_fp": fp,
+            "chosen_text": req.chosen_text[:200],
+            "assistant": answer[:200],
+        })
+        debug("[crystal_memory] load mode: appended to load_track")
 
     return {}
 
@@ -523,10 +677,10 @@ async def update_agent_memory_node(state: PaperAIState) -> dict:
 async def _update_crystal_memory_async(
     user_msg: str,
     assistant_msg: str,
+    current_timestamp: str = "",
 ) -> None:
     """
-    后台任务: 读 Crystal_memory.md, 把全局 track (Crystal_track.json, 最近 20 条
-    跨论文 Ask 记录) + 本轮对话一起喂 LLM, 写回。
+    后台任务: 读 Crystal_memory.md, 把双轨 track (Ask + Load) + 本轮对话一起喂 LLM, 写回。
 
     复用 ai_config 中的 api_key / api_url / model。
 
@@ -537,7 +691,6 @@ async def _update_crystal_memory_async(
             debug("[crystal_memory] skip: ai_config 未设置")
             return
 
-        # 确保目录存在 (冷启动场景)
         _ensure_memory_dir()
 
         # 读当前 Markdown
@@ -549,27 +702,25 @@ async def _update_crystal_memory_async(
             except OSError:
                 current = ""
 
-        # 取全局 track 作为辅助上下文 (取代原来的 intermediate_history)
-        track = _get_track()
+        # 取双轨 track 作为辅助上下文
+        ask_track = _get_track("ask")
+        load_track = _get_track("load")
 
         new_md = await _call_memory_update_llm(
             current,
             user_msg,
             assistant_msg,
-            track,
+            current_timestamp,
+            ask_track,
+            load_track,
         )
         if new_md:
             with open(CRYSTAL_MEMORY_FILE, "w", encoding="utf-8") as f:
                 f.write(new_md)
-            # 同步刷新内存缓存, 下次 /ai/ask /ai/load 立刻拿到新内容
             _set_agent_memory_cache(new_md)
-            prev_len = len(current)
-            new_len = len(new_md)
-            delta = new_len - prev_len
             debug(
                 f"[crystal_memory] WRITE ok: "
-                f"prev_len={prev_len} new_len={new_len} delta={delta:+d} "
-                f"path={CRYSTAL_MEMORY_FILE}"
+                f"prev_len={len(current)} new_len={len(new_md)} delta={len(new_md)-len(current):+d}"
             )
     except Exception as e:
         debug(f"[crystal_memory] update FAIL: {type(e).__name__}: {e}")
@@ -579,23 +730,23 @@ async def _call_memory_update_llm(
     current_md: str,
     user_msg: str,
     assistant_msg: str,
-    track: list[dict] | None = None,
+    current_timestamp: str = "",
+    ask_track: list[dict] | None = None,
+    load_track: list[dict] | None = None,
 ) -> str:
     """
-    调 LLM 让它合并更新 Crystal_mem.md, 返回新的 Markdown 文本。配置从 ai_config 读取。
+    调 LLM 更新 Crystal_mem.md, 返回新的 Markdown 文本。
 
-    注入精确到秒的时间戳到 user prompt (buildMemoryUpdateUserPrompt 的 current_timestamp 参数),
-    让 LLM 在修改或新增条目末尾追加时间戳。
-
-    track 提供跨论文全局上下文 (替代原来的 intermediate_history)。
+    参数:
+      current_timestamp: 秒级可读时间字符串 (来自 now_ms + format_dt_second)
+      ask_track: Ask 跨论文轨迹
+      load_track: Load 跨论文轨迹
     """
-    ts = now_ms()
-    current_time_str = format_dt_second(ts)
-
     messages = [
         {"role": "system", "content": MEMORY_UPDATE_SYSTEM()},
         {"role": "user", "content": buildMemoryUpdateUserPrompt(
-            current_md, user_msg, assistant_msg, current_time_str, track
+            current_md, user_msg, assistant_msg,
+            current_timestamp, ask_track, load_track,
         )},
     ]
     content, _ = await _call_llm(messages=messages, vision_model=False)
@@ -608,13 +759,13 @@ async def _call_memory_update_llm(
 
 async def flush_track_node(state: PaperAIState) -> dict:
     """
-    对话结束后的最后一个节点: 把 track 缓存一次性写盘 (覆盖式)。
+    对话结束后的最后一个节点: 把 ask + load 两条 track 缓存一次性写盘 (覆盖式)。
 
-    之前 update_agent_memory_node 用 _append_track 累积到内存 cache +
-    标 dirty; 这里统一做一次 flush_track_to_disk(), 避免每次 Ask 都打开
-    Crystal_track.json 写盘 (高频小 I/O 浪费)。
+    之前 update_agent_memory_node 用 _append_track 累积到内存 cache + 标 dirty;
+    这里统一做一次 flush, 避免高频小 I/O。
     """
-    _flush_track_to_disk()
+    _flush_track_to_disk("ask")
+    _flush_track_to_disk("load")
     return {}
 
 

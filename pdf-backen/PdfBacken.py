@@ -114,22 +114,61 @@ async def req_highlight_load(req_info: HlInfo):
         return res
 
 @app.post("/reqLoadAIPre")
-async def func(req_info:AiLoadReq):   
-    file_path = os.path.join(base_dir, 'save', f'{req_info.fp}.json')
-    if os.path.exists(file_path):
-        return True
-
-    return False  
+async def func(req_info:AiLoadReq):
+    """检查该论文是否有 _ai.json 历史（新版 schema）"""
+    file_path = os.path.join(base_dir, 'save', f'{req_info.fp}_ai.json')
+    return os.path.exists(file_path)
 
 @app.post("/reqLoadAI")
-async def func(req_info:AiLoadReq):   
-    file_path = os.path.join(base_dir, 'save', f'{req_info.fp}.json')
-    if os.path.exists(file_path):
+async def func(req_info: AiLoadReq):
+    """
+    读 _ai.json (新 schema entry) 并转换为前端 LIST_TYPE_* viewmodel。
+
+    返回 _ai.json 全部 entry（含 Anno、含 Vision Ask）供前端渲染。
+    注意: 此接口不参与 LLM 上下文加载，上下文过滤由 _load_paper_history 负责。
+    """
+    file_path = os.path.join(base_dir, 'save', f'{req_info.fp}_ai.json')
+    if not os.path.exists(file_path):
+        return []
+    try:
         with open(file_path, 'r', encoding='utf-8') as f:
-            res = json.load(f)  # 读取JSON文件内容并赋值给load
-            debug(f'PDF[{req_info.fp}] has loaded {len(res)} logs!')
-            return res
-    return []  # 返回完整的响应
+            entries = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return []
+
+    _MSG_TYPE_TO_LIST_TYPE = {
+        "ReqLoad": "LIST_TYPE_ASK",
+        "ReqAsk":  "LIST_TYPE_ASK",
+        "ResLoad": "LIST_TYPE_AI",
+        "ResAsk":  "LIST_TYPE_AI",
+    }
+
+    viewmodel = []
+    for e in entries:
+        t = e.get("type", "")
+        if t in _MSG_TYPE_TO_LIST_TYPE:
+            viewmodel.append({
+                "type": _MSG_TYPE_TO_LIST_TYPE[t],
+                "text": e.get("content", ""),
+                "dt":   e.get("dt", ""),
+                "hl":   e.get("hl"),
+                "img":  e.get("img", ""),
+                "token_count": e.get("token_count"),
+            })
+        elif t == "Anno":
+            viewmodel.append({
+                "type": f"LIST_TYPE_{e.get('anno_id', 'ANNO_' + str(e.get('ts', '')))}",
+                "text": e.get("content", ""),
+                "dt":   e.get("dt", ""),
+                "hl":   e.get("hl"),
+                "img":  e.get("img", ""),
+            })
+        else:
+            # 旧数据兼容 (role/user/assistant 格式)
+            viewmodel.append(e)
+
+    debug(f'PDF[{req_info.fp}] has loaded {len(viewmodel)} entries!')
+    return viewmodel
 
 @app.put("/reqSaveAI")
 async def func(req_info:AiSaveReq):
@@ -184,6 +223,57 @@ async def func(req_info:AiSaveReq):
         raise HTTPException(status_code=500, detail=f"Invalid JSON format in file: {e}")
     except Exception as e:
         debug(f'[reqSaveAI] ERROR: {type(e).__name__}: {e} | fp={req_info.fp}')
+        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}")
+
+
+@app.put("/reqSaveAnno")
+async def func(req_info: AiSaveReq):
+    """
+    ANNO 批注专用路由，写入 _ai.json。
+
+    不复用 /reqSaveAI（该路由专管前端 Load/Ask 写盘，已废弃）。
+    """
+    save_dir = os.path.join(base_dir, 'save')
+    os.makedirs(save_dir, exist_ok=True)
+    file_path = os.path.join(save_dir, f'{req_info.fp}_ai.json')
+
+    try:
+        if not os.path.exists(file_path):
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump([], f)
+
+        with open(file_path, 'r', encoding='utf-8') as f:
+            data: list = json.load(f)
+
+        if req_info.mode == 'ADD':
+            data.append(req_info.cont)
+        elif req_info.mode == 'DEL':
+            idx = req_info.index
+            if idx is None or idx < 0 or idx >= len(data):
+                debug(f'[reqSaveAnno] DEL out-of-range idx={idx} len={len(data)} | fp={req_info.fp}')
+            else:
+                data.pop(idx)
+        elif req_info.mode == 'SET':
+            idx = req_info.index
+            if idx is None or idx < 0 or idx >= len(data):
+                debug(f'[reqSaveAnno] SET out-of-range idx={idx} len={len(data)} -> append | fp={req_info.fp}')
+                data.append(req_info.cont)
+            else:
+                data[idx] = req_info.cont
+        else:
+            debug(f'[reqSaveAnno] unknown mode: {req_info.mode}, fp={req_info.fp}')
+            raise ValueError(f"Unknown mode: {req_info.mode}")
+
+        with open(file_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f)
+
+        debug(f'[reqSaveAnno] saved ok: mode={req_info.mode} fp={req_info.fp} index={req_info.index}')
+
+    except json.JSONDecodeError as e:
+        debug(f'[reqSaveAnno] JSONDecodeError: {e} | fp={req_info.fp}')
+        raise HTTPException(status_code=500, detail=f"Invalid JSON format in file: {e}")
+    except Exception as e:
+        debug(f'[reqSaveAnno] ERROR: {type(e).__name__}: {e} | fp={req_info.fp}')
         raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}")
 
 

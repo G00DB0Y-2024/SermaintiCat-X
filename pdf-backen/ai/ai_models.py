@@ -6,7 +6,12 @@ AI 模块的 Pydantic 请求 / 响应模型。
   ask / load 请求不再每次透传 api_key / api_url / model。
 - ask / load 请求只包含业务参数 (pdf_fp, ask, quotes …),
   LLM 调用直接从 ai_config 读取 api_key / api_url / model / vision_model。
+
+Schema 变更 (v2):
+- save/{fp}_ai.json 从 [{role, content, ts}] 改为 [{type, content, ts, dt, ...}]
+  type 取值: ReqLoad | ResLoad | ReqAsk | ResAsk | Anno
 """
+from enum import Enum
 from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
@@ -55,6 +60,14 @@ class AiAskReq(BaseModel):
         default=None,
         description="图片 base64 (含 data:image/...;base64, 前缀), null 表示非视觉模式",
     )
+    image_filename: Optional[str] = Field(
+        default="",
+        description="Vision 图片文件名(写盘用), 空字符串表示非视觉模式",
+    )
+    hl: Optional[dict] = Field(
+        default=None,
+        description="chosen_hldata, 用户选中的高亮上下文",
+    )
 
 
 # ── /ai/load ──────────────────────────────────────────────────────────
@@ -81,3 +94,43 @@ class AiResp(BaseModel):
                     "前端应优先使用此字段而非本地时间, 确保前后端时区一致。"
                     "空字符串表示后端未提供 (兼容老接口)。",
     )
+
+
+# ── 新 Schema Entry 类型 ──────────────────────────────────────────────
+# 用于 save/{fp}_ai.json v2 格式: [{type, content, ts, dt, ...}]
+
+
+class AiMsgType(str, Enum):
+    """_ai.json entry 的 type 枚举。"""
+    REQ_LOAD = "ReqLoad"
+    RES_LOAD = "ResLoad"
+    REQ_ASK  = "ReqAsk"
+    RES_ASK  = "ResAsk"
+    ANNO     = "Anno"
+
+
+class AiPaperEntry(BaseModel):
+    """
+    save/{fp}_ai.json 的单条 entry。
+
+    字段说明:
+      type:        "ReqLoad"|"ResLoad"|"ReqAsk"|"ResAsk"|"Anno"
+      content:     文本内容
+      ts:          UTC ms, now_ms() 单源
+      dt:          "YYYY-MM-DD HH:MM:SS" 北京时间
+      hl:          论文高亮上下文 (仅 Req/Res 有)
+      quote_gids:  Ask 引用段 ID 列表
+      img:         图片文件名 (Vision 模式); Anno 模式也可能有
+      token_count: 仅 Res 有, LLM token 消耗
+      anno_id:     仅 Anno 有, "ANNO_{fp}_{ts}"
+    """
+    type: str
+    content: str
+    ts: int
+    dt: str
+    hl: Optional[dict] = None
+    quote_gids: Optional[list[str]] = None
+    img: Optional[str] = ""
+    token_count: Optional[int] = None
+    anno_id: Optional[str] = None
+

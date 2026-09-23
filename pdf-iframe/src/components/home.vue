@@ -527,9 +527,9 @@ export default{
 
       // 气泡级跳转:逐条消息走(对比旧的"组级 group_cursor",
       // 旧行为会一次跨过 ASK+AI 两条,用户容易错过单条 AI 回复)。
-      if (event.button === 3) {  // 后退侧键(向下走,看更早的对话)
+      if (event.button === 4) {  // 后退侧键(向下走,看更早的对话)
         this.current_index--
-      } else if (event.button === 4) {  // 前进侧键(向上走,看更新的对话)
+      } else if (event.button === 3) {  // 前进侧键(向上走,看更新的对话)
         this.current_index++
       } else {
         return
@@ -820,6 +820,7 @@ export default{
             dt:this.getFormattedDate(),
             hl:this.annotation_hldata,
             img:img_name,
+            anno_id: 'ANNO_'+this.pdf_fp+'_'+timestamp,
           })
           
           this.annotation_flag = true  //确认注释，不再发送CANCEL消息
@@ -962,18 +963,21 @@ export default{
         this.ai_res[index]=content
       }
 
-      // 2) 同步到后端;失败则回滚本地状态,并提示用户
-      try {
-        await this.$axios.put('/reqSaveAI', {fp:this.pdf_fp, mode:mode, index:index, cont:content})
-      } catch (err) {
-        console.error('[reqSaveAI] 失败,回滚本地:', err)
-        if (mode === 'ADD') {
-          this.ai_res.pop()
-        } else if (mode === 'DEL') {
-          this.ai_res.splice(index, 0, content)
-        } else if (mode === 'SET') {
-          // SET 没有"旧版本快照",只提示,不动本地
-          this.$message?.error?.('保存会话失败,刷新页面后可能丢失')
+      // 2) 只对 ANNO 写盘 (用独立路由 /reqSaveAnno)
+      //    Load/Ask 写盘已废除，由后端 save_paper_memory_node 统一管理
+      const isAnno = content && content.type && content.type.includes("LIST_TYPE_ANNO")
+      if (isAnno) {
+        try {
+          await this.$axios.put('/reqSaveAnno', {fp:this.pdf_fp, mode:mode, index:index, cont:content})
+        } catch (err) {
+          console.error('[reqSaveAnno] 失败,回滚本地:', err)
+          if (mode === 'ADD') {
+            this.ai_res.pop()
+          } else if (mode === 'DEL') {
+            this.ai_res.splice(index, 0, content)
+          } else if (mode === 'SET') {
+            this.$message?.error?.('保存会话失败,刷新页面后可能丢失')
+          }
         }
       }
 
