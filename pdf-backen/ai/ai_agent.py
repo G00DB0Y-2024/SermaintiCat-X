@@ -540,7 +540,20 @@ async def load_paper_history_node(state: PaperAIState) -> dict:
 
 
 def _build_ask_user_content(req: AiAskReq) -> str | list[dict]:
-    """构建 Ask 本轮 user content (纯文本或 vision 多模态)。"""
+    """
+    构建 Ask 本轮 user content (纯文本或 vision 多模态)。
+
+    引用上下文分类:
+      - 论文场景 (pdf_fp != CHAT_FP):
+          前端通常传 quotes = [{quote_gid, quote_msg}], 后端无需看 quote_content。
+          走 "用户引用的内容: ..." 标签分支。
+      - 聊天场景 (pdf_fp == CHAT_FP):
+          聊天内一次只能引用一条历史消息 (ChatView 灰条预览)。
+          前端把被引用消息的原文直接写到 quote_content 字段, quotes 留空。
+          这里特判并加 "聊天中的引用" 标签让 LLM 明确区分。
+
+    两种引用都会被明确标注, LLM 不会把它误当成 "用户问题的一部分"。
+    """
     if req.image_base64 is not None:
         suffix = (
             "请回答用户的询问：" + req.ask
@@ -551,18 +564,35 @@ def _build_ask_user_content(req: AiAskReq) -> str | list[dict]:
             {"type": "text", "text": "针对给定图片" + suffix},
             {"type": "image_url", "image_url": {"url": req.image_base64}},
         ]
-    else:
-        if not req.quotes:
-            return req.ask
+
+    quote_content = (req.quote_content or "").strip()
+
+    # 论文场景: quotes 非空 → 论文段落引用 (沿用旧路径)
+    if req.quotes:
         quote_lines = "\n".join(
             f"{i + 1}.{q.get('quote_msg', '')}"
             for i, q in enumerate(req.quotes)
         )
         return (
             f"用户引用的内容：\n{quote_lines}\n\n"
-            f"用户引用的解释：{req.quote_content}\n\n"
+            f"用户引用的解释：{quote_content}\n\n"
             f"用户的询问【{req.ask}】"
         )
+
+    # 聊天场景: 仅 quote_content 非空 → 聊天历史引用
+    # 后端需要明确告诉 LLM: "这段文字是用户引用的聊天消息, 不是用户问题的一部分"
+    if quote_content and req.pdf_fp == CHAT_FP:
+        # 用 <quoted_message>...</quoted_message> 包起来, 便于未来若要做
+        # 模型层解析 (例如抽取关键实体) 时有显式锚点。
+        return (
+            "<quoted_message>\n"
+            f"{quote_content}\n"
+            "</quoted_message>\n\n"
+            f"用户的询问【{req.ask}】"
+        )
+
+    # 其他无引用情况: 直接发 ask
+    return req.ask
 
 
 def _build_load_user_content(req: AiLoadReq) -> str:
@@ -664,7 +694,7 @@ def _compose_chat_messages(
 ) -> list[dict]:
     """
     ChatView 上下文 (脱离具体论文):
-      [system]  CrystalPersona + time + agent_mem + 全局闲聊提示 + 论文 track 摘要
+      [system]  CrystalPersona + time + device + agent_mem + 全局闲聊提示 + 论文 track 摘要
       [user/assistant × CHAT_LOCAL_LIMIT 对]  ChatView 本地历史
       [user]  本轮提问
 
@@ -675,7 +705,14 @@ def _compose_chat_messages(
     # 1) 摘要化论文全局 track (避免破坏 user/assistant 交替, 用文本块)
     track_summary = _build_track_summary_block()
 
+    # 2) 设备感知上下文 (前端传入 device 字段)
+    device = getattr(req, "device", None) or None
+    from .prompts import get_device_context
+    device_context = get_device_context(device) if device else ""
+
     system_content = SYSTEM_ASK(time_context, agent_mem)
+    if device_context:
+        system_content += "\n\n" + device_context
     if track_summary:
         system_content += (
             "\n\n【论文场景全局记忆 (仅供你了解用户近期在论文中的关注点, "

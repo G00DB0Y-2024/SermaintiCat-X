@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import json
+import time
 
 from fastapi import APIRouter, HTTPException
 
@@ -130,3 +131,40 @@ async def ai_history(req: AiHistoryReq) -> AiHistoryResp:
         return AiHistoryResp(entries=[])
 
     return AiHistoryResp(entries=raw)
+
+
+# ── /ai/memory ─────────────────────────────────────────────────────────
+
+MEMORY_FP = os.path.join(os.path.dirname(__file__), "memory", "Crystal_memory.md")
+
+
+@router.get("/memory")
+async def ai_memory() -> dict:
+    """
+    返回 Crystal 记忆库原文 (Crystal_memory.md), 供 ChatMem.vue 渲染。
+
+    返回: { content: str, updated: str }
+        content  — markdown 原文
+        updated  — 文件最后修改时间字符串 (北京时间)
+    失败 → HTTP 500。
+    """
+    if not os.path.exists(MEMORY_FP):
+        raise HTTPException(status_code=404, detail="Memory file not found")
+
+    try:
+        mtime = os.path.getmtime(MEMORY_FP)
+        # UTC mtime → 北京时间字符串
+        updated = time.strftime("%Y-%m-%d %H:%M:%S",
+                                time.localtime(mtime))
+    except Exception:
+        updated = ""
+
+    try:
+        with open(MEMORY_FP, "r", encoding="utf-8") as f:
+            content = f.read()
+    except OSError as e:
+        debug(f"[/ai/memory] read failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Read error: {e}")
+
+    return {"content": content, "updated": updated}
+

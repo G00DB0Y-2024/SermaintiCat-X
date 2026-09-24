@@ -1,1 +1,1 @@
-[]
+[{"ts": 1790216239384, "ts_str": "2026-09-24 10:17:19", "pdf_fp": "73fd8306f4e3386244ca2716b1708c47", "chosen_text": "4.4 Results on Offline Benchmarks The off-policy property and the distribution learning characteristic of generative models naturally endow DeepPQL with profound extensibility for Offline-MORL paradig", "assistant": "DeepPQL 凭借异策略（Off-policy）特性和生成模型的分布学习能力，天然具备扩展至离线多目标强化学习（Offline-MORL, Offline Multi-Objective Reinforcement Learning）的潜力。\n\n**离线数据集构建**：各离线实验组的数据由对应的在线智能体采集，重置网络参数后进入离线学习阶段。此阶段严格禁止与环境交互。\n\n**分布生成 CQL 惩"}]

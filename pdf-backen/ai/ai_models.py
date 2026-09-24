@@ -68,6 +68,10 @@ class AiAskReq(BaseModel):
         default=None,
         description="chosen_hldata, 用户选中的高亮上下文",
     )
+    device: Optional[str] = Field(
+        default=None,
+        description="发送设备类型: 'desktop' | 'mobile' | 'tablet' | None(未知)",
+    )
 
 
 # ── /ai/load ──────────────────────────────────────────────────────────
