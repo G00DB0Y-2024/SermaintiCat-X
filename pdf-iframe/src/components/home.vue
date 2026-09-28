@@ -108,8 +108,9 @@
             @mouseup="handleSideButtonCapture"> <!-- Chrome 把 back/forward 行为绑在 mouseup 鼠标抬起时捕获 -->
             <div v-for="(item, index) in ai_res" ref="render" :key="index"
               style="display: block; background-color: transparent;">
-              <gptRenderUnit style="width: 100%;" :content="item.text" :datetime="item.dt" :hldata="item.hl"
+              <gptRenderUnit style="width: 100%;" :content="item.content" :datetime="item.dt" :hldata="item.hl"
                 :headtype="item.type" :gid="index" :vid="vid" :img_name="item.img"
+                :entry-flag="item.flag"
                 :editting="index === annotation_edit_index"
                 :_thinking="index === placeholderIndex && placeholderIndex !== -1"
                 :token-count="item.token_count ?? null"
@@ -349,11 +350,19 @@ export default{
         }
         if(message.type === 'ACTIVE_CLICK_ANNO'){
           //pdf主动点击注释，vue跳转
+          // 兼容新旧格式: type='Anno' 时使用 entry.flag;旧数据从 type 末尾提取
           let index = -1
           this.ai_res.forEach((item, i)=>{
-            if(item.type==='LIST_TYPE_ANNO_'+message.flag){
-              index = i
-              return
+            const isAnno = item.type === 'Anno'
+              || item.type?.includes('Anno_')
+              || item.type?.includes('LIST_TYPE_ANNO')
+            if(isAnno){
+              // 新格式: 统一从 entry.flag 取;旧格式: 从 type 末尾取
+              const flag = item.flag ?? (item.type?.split('_').at(-1))
+              if(flag === message.flag){
+                index = i
+                return
+              }
             }
           })
           this.adjustScroll(index)
@@ -682,14 +691,17 @@ export default{
           hrate:ai_hrate,
           htype:ai_type
         })
-        //classifyRateArr [input  feedback   ouput]
-        if(ai_type.includes('LIST_TYPE_AI')){
+        //classifyRateArr [Input  Feedback   Output]
+        // Input(蓝色): Req* → 用户划词/追问请求
+        // Feedback(绿色): Res* → AI回复
+        // Output(红色): Anno* → 注释
+        if(ai_type.startsWith('Req')){
           this.classifyRateArr[0] += ai_hrate
         }
-        if(ai_type.includes('LIST_TYPE_ASK')){
+        if(ai_type.startsWith('Res')){
           this.classifyRateArr[1] += ai_hrate
         }
-        if(ai_type.includes('LIST_TYPE_ANNO')){
+        if(ai_type === 'Anno' || ai_type.includes('Anno_') || ai_type.includes('LIST_TYPE_ANNO')){
           this.classifyRateArr[2] += ai_hrate
         }
       })
@@ -705,22 +717,22 @@ export default{
         let end = i + 1  // 半开区间 [start, end)
         let groupType = 'OTHER'
 
-        if (curType.includes('LIST_TYPE_ASK')) {
-          // 一组最多 = ASK + 紧邻的 1 条 AI。
-          // 关键:不能无脑吞掉后续所有 AI — 后续 AI 很可能是另一次划词回复
-          // (callAIResponse 触发,前面没 ASK),必须留给下一轮扫描自己独立成组。
-          groupType = 'ASK_AI'
+        if (curType.startsWith('Req')) {
+          // 一组最多 = Req + 紧邻的 1 条 Res。
+          // 关键:不能无脑吞掉后续所有 Res — 后续 Res 很可能是另一次划词回复
+          // (callAIResponse 触发,前面没 Req),必须留给下一轮扫描自己独立成组。
+          groupType = 'REQ_RES'
           if (i + 1 < this.ai_res.length
               && this.ai_res[i + 1].type
-              && this.ai_res[i + 1].type.includes('LIST_TYPE_AI')) {
+              && this.ai_res[i + 1].type.startsWith('Res')) {
             end = i + 2
           } else {
             end = i + 1
           }
-        } else if (curType.includes('LIST_TYPE_AI')) {
-          groupType = 'AI'
+        } else if (curType.startsWith('Res')) {
+          groupType = 'RES'
           end = i + 1
-        } else if (curType.includes('LIST_TYPE_ANNO')) {
+        } else if (curType === 'Anno' || curType.includes('Anno_') || curType.includes('LIST_TYPE_ANNO')) {
           groupType = 'ANNO'
           end = i + 1
         }
@@ -737,11 +749,11 @@ export default{
       }
     },
     MapGroupColor(group){
-      // 整段 ASK + AI 在侧条上一律显示为绿色(统一一个问答组)
-      if (group.groupType === 'ASK_AI') {
+      // Req+Res 组 → 绿色(追问/划词); 单独 Res → 蓝色(AI 回复); Anno → 红色
+      if (group.groupType === 'REQ_RES') {
         return 'rgba(86, 145, 69, 0.741)'
       }
-      if (group.groupType === 'AI') {
+      if (group.groupType === 'RES') {
         return 'rgb(122, 155, 205)'
       }
       if (group.groupType === 'ANNO') {
@@ -750,13 +762,13 @@ export default{
       return '#cccccc'
     },
     MapHeadBarBackgroundColor(headtype){
-      if(headtype.includes('LIST_TYPE_ASK')){
+      if(headtype && headtype.startsWith('Req')){
         return 'rgba(86, 145, 69, 0.741)'
       }
-      if(headtype.includes('LIST_TYPE_AI')){
+      if(headtype && headtype.startsWith('Res')){
         return 'rgb(122, 155, 205)'
       }
-      if(headtype.includes('LIST_TYPE_ANNO')){
+      if((headtype === 'Anno') || (headtype && headtype.includes('Anno_')) || (headtype && headtype.includes('LIST_TYPE_ANNO'))){
         return '#AC4848'
       }
     },
@@ -781,7 +793,7 @@ export default{
         if(this.annotation_edit_index !== -1){
           //修改模式
           let history_res = {...this.ai_res[this.annotation_edit_index]}
-          history_res.text = `${this.askContent}>>${this.annotation_edit_texts[1]}<<`
+          history_res.content = `${this.askContent}>>${this.annotation_edit_texts[1]}<<`
           
           if(this.askImage.img !== null){
             let img_name = `${this.pdf_fp}_${Date.now()}.png`
@@ -814,20 +826,23 @@ export default{
           }
 
           //确认注释储存内容
+          const anno_flag = Date.now().toString()
           this.handleAiChange('ADD', -1, {
-            type:'LIST_TYPE_ANNO_'+timestamp,
-            text:this.askContent + `>>${this.annotaiton_selected}<<`,
+            type:'Anno',
+            content:this.askContent + `>>${this.annotaiton_selected}<<`,
             dt:this.getFormattedDate(),
+            ts:Date.now(),
             hl:this.annotation_hldata,
             img:img_name,
-            anno_id: 'ANNO_'+this.pdf_fp+'_'+timestamp,
+            anno_id: 'Anno',
+            flag: anno_flag,
           })
-          
+
           this.annotation_flag = true  //确认注释，不再发送CANCEL消息
           chrome.runtime.sendMessage({  //发送确认消息
-            type:'CONFIRM_ANNOATION', 
+            type:'CONFIRM_ANNOATION',
             vid:this.vid,
-            flag:timestamp,
+            flag:anno_flag,
           })
 
         }
@@ -894,23 +909,27 @@ export default{
     handleHlClick(hl, htype, index){
       if(!this.can_render_click)
         return
-      if(htype === 'LIST_TYPE_AI'){
-        if(hl){
-          chrome.runtime.sendMessage({
-            type:'PDF_HIGHLIGHT', 
-            vid:this.vid,
-            hl:JSON.parse(JSON.stringify(hl)),
-            hl_type:htype,
-          })
-        }
+      // Res* 类型的高亮才有意义(AI 回复中引用了原文)
+      if(htype && htype.startsWith('Res') && hl){
+        chrome.runtime.sendMessage({
+          type:'PDF_HIGHLIGHT',
+          vid:this.vid,
+          hl:JSON.parse(JSON.stringify(hl)),
+          hl_type:htype,
+        })
       }
-      if(htype.includes('LIST_TYPE_ANNO')){
+      const isAnno = htype && (
+        htype === 'Anno' ||
+        htype.includes('Anno_') ||
+        htype.includes('LIST_TYPE_ANNO')
+      )
+      if(isAnno){
         if(this.annotation_edit_index!==index){
           this.annotation_edit_index = index
           //主动获得焦点，进入编辑模式
           this.askFocus = true
           this.$refs.askTextrea.focus()
-          this.annotation_edit_texts = this.parseMessage(this.ai_res[index].text)
+          this.annotation_edit_texts = this.parseMessage(this.ai_res[index].content)
           this.askContent = this.annotation_edit_texts[0]
           if(this.ai_res[index].img!==''){
             this.readImageData('http://localhost:8225/static/'+this.ai_res[index].img)
@@ -942,8 +961,12 @@ export default{
       } else if(mode==='DEL'){
         this.can_render_click = false
         const target = this.ai_res[index]
-        if(target && target.type && target.type.includes("LIST_TYPE_ANNO")){
-          let flag = target.type.split('_').at(-1)
+        const isAnnoDel = target && target.type && (
+          target.type === 'Anno' ||
+          target.type.includes('Anno_') || target.type.includes('LIST_TYPE_ANNO')
+        )
+        if(isAnnoDel){
+          const flag = target.flag ?? target.type.split('_').at(-1)
           chrome.runtime.sendMessage({
             type:'DEL_ANNOATION',
             vid:this.vid,
@@ -965,7 +988,11 @@ export default{
 
       // 2) 只对 ANNO 写盘 (用独立路由 /reqSaveAnno)
       //    Load/Ask 写盘已废除，由后端 save_paper_memory_node 统一管理
-      const isAnno = content && content.type && content.type.includes("LIST_TYPE_ANNO")
+      const isAnno = content && content.type && (
+        content.type === 'Anno' ||
+        content.type.includes('Anno_') ||
+        content.type.includes('LIST_TYPE_ANNO')
+      )
       if (isAnno) {
         try {
           await this.$axios.put('/reqSaveAnno', {fp:this.pdf_fp, mode:mode, index:index, cont:content})
@@ -994,9 +1021,14 @@ export default{
 
       this.UpdateWindowUI().then(()=>{
         if (skipScroll) return
+        const isAnnoAdd = content && content.type && (
+          content.type === 'Anno' ||
+          content.type.includes('Anno_') ||
+          content.type.includes('LIST_TYPE_ANNO')
+        )
         if (
-          (mode === 'ADD' && content && !content.type.includes("LIST_TYPE_ANNO")) ||
-          (mode === 'SET' && content && !content.type.includes("LIST_TYPE_ANNO")) ||
+          (mode === 'ADD' && !isAnnoAdd) ||
+          (mode === 'SET' && !isAnnoAdd) ||
           (mode === 'DEL')
         ) {
           this.adjustScroll(scrollToIndex);  //跳转
@@ -1011,7 +1043,9 @@ export default{
       this.$axios.post('/reqLoadAI', {fp:this.pdf_fp}).then(res=>{
 
           setTimeout(()=>{
-            this.ai_res = res.data
+            // ResLoad 是后端 Load 模式产生的占位气泡,纯交互占位无实质内容,
+            // 加载历史时过滤掉,只展示 ReqAsk/ResAsk 实质对话。
+            this.ai_res = (res.data || []).filter(item => item.type !== 'ReqLoad')
             this.waiting = false
 
             //自动跳转
@@ -1032,13 +1066,16 @@ export default{
             //检出其中所有的ANNO，发送给pdfjs
             let anno_list = []
             this.ai_res.forEach(item=>{
-
-              if(item.type.includes('LIST_TYPE_ANNO')){
+              const isAnno = item.type === 'Anno'
+                || item.type?.includes('Anno_')
+                || item.type?.includes('LIST_TYPE_ANNO')
+              if(isAnno){
+                // 新格式: 统一从 entry.flag 取;旧格式: 从 type 末尾取
+                const flag = item.flag ?? item.type?.split('_').at(-1)
                 anno_list.push({
-                  flag: item.type.split('_').at(-1),
+                  flag: flag,
                   hldata:item.hl,
-                })                
-                // console.log("VUE 已经读取flag= "+item.type.split('_').at(-1) +"的数据")
+                })
               }
             })
             chrome.runtime.sendMessage({
@@ -1230,33 +1267,23 @@ export default{
       this.shown_text = text
 
     },
-    handleQuote(gid, msg, method){
-      let new_quote = {quote_gid:gid, quote_msg:msg}
-      let index = this.askQuote.findIndex(item => item.quote_gid===new_quote.quote_gid && item.quote_msg===new_quote.quote_msg);
-
-      if(method === 'set'){
-        if (index !== -1) {
-          // 如果存在则删除
-          this.askQuote.length = 0
-        } 
-        else{
-          this.askQuote.length = 0
-          this.askQuote.push(new_quote);
-        }
+    handleQuote(gid){
+      // askQuote 存 msg_fp 字符串数组。点击引用:若已在数组中则删,否则加。
+      // 入口:中键选段 + 气泡内引用按钮 → 都用 'add' 行为,直接 toggle。
+      // 不再需要 method/gid 机制,仅用 fp 作为唯一去重身份。
+      const fp = this.ai_res[gid]?.msg_fp || ''
+      if (!fp) {
+        console.warn('[handleQuote] no msg_fp at gid=', gid, '- quote dropped')
+        return
       }
-      else if(method === 'add'){
-        if (index !== -1) {
-          // 如果存在则删除
-          this.askQuote.splice(index, 1);
-        } else {
-          // 如果不存在则添加
-          this.askQuote.push(new_quote);
-        }
-        
+      const idx = this.askQuote.indexOf(fp)
+      if (idx !== -1) {
+        this.askQuote.splice(idx, 1)
+      } else {
+        this.askQuote.push(fp)
       }
       this.resetImgInfo()
       this.askFocus = false
-
     },
     checkAndRemoveTest(str) {
         if (str.includes("@Test")) {
@@ -1330,20 +1357,26 @@ export default{
       const isVision = this.askImage.img !== null
 
       // ── Push 用户气泡 ──
+      // 字段命名统一与后端 _ai.json 一致:content (而非 text)。
+      // msg_fp/quotes 由后端响应回填,前端先 push 占位。
       this.handleAiChange('ADD', -1, {
-        type: 'LIST_TYPE_ASK',
-        text: this.askContent,
+        type: 'ReqAsk',
+        content: this.askContent,
         dt: this.getFormattedDate(),
+        ts: Date.now(),
         hl: null,
+        quotes: [],
+        img: '',
       }, {skipScroll: true})
 
       // ── Push AI 占位 ──
       // token_count 必须在初始化时声明,后续 stream 结束时才能可靠地
       // 通过 placeholder.token_count = usage.total_tokens 触发响应式更新。
       const placeholder = {
-        type: 'LIST_TYPE_AI',
-        text: '',
+        type: 'ResAsk',
+        content: '',
         dt: this.getFormattedDate(),
+        ts: Date.now(),
         hl: this.chosen_hldata,
         img: '',
         token_count: null,
@@ -1356,11 +1389,12 @@ export default{
       })
 
       // ── 发送请求(后端 LangGraph /ai/ask) ──
+      // askQuote 本身已经是 msg_fp 字符串数组 (handleQuote 直接 push fp, 无 gid 机制),
+      // 后端 _build_ask_user_content 会按 fp 在 ask_history 中反查原文。
       this.$axios.post('/ai/ask', {
         pdf_fp: this.pdf_fp,
         ask: this.askContent,
         quotes: this.askQuote,
-        quote_content: this.getQuoteContent(),
         image_base64: isVision ? this.askImage.img : null,
       }, {
         cancelToken: this.cancelTokenSource.token,
@@ -1375,14 +1409,20 @@ export default{
           // 滚到 placeholderIndex(AI 自身)正好把完整 AI 置顶,体验连贯。
           // AI 气泡 dt 优先使用后端服务端时间 (data.dt, 北京时区, 单源),
           // 保证前后端时间一致; 后端未返回时降级到前端格式。
+          // msg_fp 由后端 res_fp 回填到 AI 气泡,req_fp 回填到上一条用户气泡。
           this.handleAiChange('SET', this.placeholderIndex, {
-            type: 'LIST_TYPE_AI',
-            text: finalText,
+            type: 'ResAsk',
+            content: finalText,
             dt: data.dt || this.getFormattedDate(),
             hl: this.chosen_hldata,
             img: '',
             token_count: tokenCount,
+            msg_fp: data.res_fp || '',
           })
+          // 回填用户气泡的 msg_fp(后端生成的 req_fp)
+          if (data.req_fp && this.placeholderIndex >= 1) {
+            this.ai_res[this.placeholderIndex - 1].msg_fp = data.req_fp
+          }
           this.waiting = false
           this.placeholderIndex = -1
           window.focus()
@@ -1403,13 +1443,14 @@ export default{
       this.cancelTokenSource?this.cancelTokenSource.cancel('请求被用户取消'):null //强制停止请求
       this.cancelTokenSource = this.$axios.CancelToken.source();
 
-      // 【第三步】先 push 占位 assistant 气泡(text 留空,_thinking 由 placeholderIndex 触发)
+      // 【第三步】先 push 占位 assistant 气泡(content 留空,_thinking 由 placeholderIndex 触发)
       // token_count 必须在初始化时声明(stream 结束时 aiService 返回的
       // usage.total_tokens 才会正确写入并触发响应式更新)。
       const placeholder = {
-        type:'LIST_TYPE_AI',
-        text: '',
+        type:'ResLoad',
+        content: '',
         dt: this.getFormattedDate(),
+        ts: Date.now(),
         hl: this.chosen_hldata,
         img: '',
         token_count: null,
@@ -1435,12 +1476,13 @@ export default{
       })
         .then(({ data }) => {
           const finalText = this.AIoutputProcess(data.content || '')
-          placeholder.text = finalText
+          placeholder.content = finalText
           // AI 气泡 dt 优先使用后端服务端时间 (data.dt, 北京时区, 单源),
           // 保证前后端时间一致; 后端未返回时降级到前端格式。
           placeholder.dt = data.dt || this.getFormattedDate()
           placeholder.hl = this.chosen_hldata
           if (data.usage?.total_tokens != null) placeholder.token_count = data.usage.total_tokens
+          if (data.res_fp) placeholder.msg_fp = data.res_fp
           // 不再 skipScroll:handleAiChange 内部会在 UpdateWindowUI 完成后
           // 自动 adjustScroll(placeholderIndex),把刚渲染完毕的 AI 精准置顶。
           this.handleAiChange('SET', this.placeholderIndex, placeholder)

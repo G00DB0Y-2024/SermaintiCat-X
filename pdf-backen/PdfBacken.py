@@ -122,9 +122,24 @@ async def func(req_info:AiLoadReq):
 @app.post("/reqLoadAI")
 async def func(req_info: AiLoadReq):
     """
-    读 _ai.json (新 schema entry) 并转换为前端 LIST_TYPE_* viewmodel。
+    读 _ai.json 并透传给前端。
 
-    返回 _ai.json 全部 entry（含 Anno、含 Vision Ask）供前端渲染。
+    输出 entry 字段与后端持久化格式完全一致:
+      {
+        "type": "ReqLoad" | "ReqAsk" | "ResLoad" | "ResAsk" | "Anno",
+        "content": str,
+        "ts": int,
+        "dt": str,
+        "msg_fp": str,
+        "quotes": [...],
+        "img": str,
+        "hl": ...,
+        "token_count": int | null,
+        "flag": str | null,        # Anno 专属
+      }
+
+    旧数据(role/user/assistant 格式)透传兼容。
+
     注意: 此接口不参与 LLM 上下文加载，上下文过滤由 _load_paper_history 负责。
     """
     file_path = os.path.join(base_dir, 'save', f'{req_info.fp}_ai.json')
@@ -136,35 +151,33 @@ async def func(req_info: AiLoadReq):
     except (json.JSONDecodeError, OSError):
         return []
 
-    _MSG_TYPE_TO_LIST_TYPE = {
-        "ReqLoad": "LIST_TYPE_ASK",
-        "ReqAsk":  "LIST_TYPE_ASK",
-        "ResLoad": "LIST_TYPE_AI",
-        "ResAsk":  "LIST_TYPE_AI",
-    }
-
     viewmodel = []
     for e in entries:
         t = e.get("type", "")
-        if t in _MSG_TYPE_TO_LIST_TYPE:
+        if t in ("ReqLoad", "ReqAsk", "ResLoad", "ResAsk"):
             viewmodel.append({
-                "type": _MSG_TYPE_TO_LIST_TYPE[t],
-                "text": e.get("content", ""),
-                "dt":   e.get("dt", ""),
-                "hl":   e.get("hl"),
-                "img":  e.get("img", ""),
+                "type": t,  # 透传:ReqLoad | ReqAsk | ResLoad | ResAsk
+                "content": e.get("content", ""),
+                "ts": e.get("ts"),
+                "dt": e.get("dt", ""),
+                "msg_fp": e.get("msg_fp", ""),
+                "quotes": e.get("quotes", []),
+                "hl": e.get("hl"),
+                "img": e.get("img", ""),
                 "token_count": e.get("token_count"),
             })
         elif t == "Anno":
             viewmodel.append({
-                "type": f"LIST_TYPE_{e.get('anno_id', 'ANNO_' + str(e.get('ts', '')))}",
-                "text": e.get("content", ""),
-                "dt":   e.get("dt", ""),
-                "hl":   e.get("hl"),
-                "img":  e.get("img", ""),
+                "type": "Anno",
+                "content": e.get("content", ""),
+                "ts": e.get("ts"),
+                "dt": e.get("dt", ""),
+                "hl": e.get("hl"),
+                "img": e.get("img", ""),
+                "flag": e.get("flag", e.get("anno_id", "Anno")),
             })
         else:
-            # 旧数据兼容 (role/user/assistant 格式)
+            # 旧数据兼容 (role/user/assistant 格式): 仍按旧字段透传
             viewmodel.append(e)
 
     debug(f'PDF[{req_info.fp}] has loaded {len(viewmodel)} entries!')

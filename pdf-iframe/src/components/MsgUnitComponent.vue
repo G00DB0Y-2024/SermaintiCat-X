@@ -574,7 +574,7 @@ export default {
     /**
      * 引用整条气泡到输入框。
      * 取气泡的纯文本(去掉图片/HTML 标签),通过 onQuote emit 上抛,
-     * home.vue 已有的 handleQuote(gid, msg, 'add') 会写入 askQuote,
+     * home.vue 已有的 handleQuote(gid) 会 toggle askQuote(同一 fp 删除,否则添加),
      * 输入框上方的 "quote +N" 标签会自动更新。
      */
     handleQuoteThis() {
@@ -582,7 +582,7 @@ export default {
       if (!bubble) return
       const msg = bubble.innerText.replace(/\s+\n/g, '\n').trim()
       if (!msg) return
-      this.$emit('onQuote', this.gid, msg, 'add')
+      this.$emit('onQuote', this.gid)
     },
   },
 }

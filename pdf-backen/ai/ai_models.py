@@ -48,13 +48,9 @@ class AiAskReq(BaseModel):
     """Ask 模式 — 用户在论文阅读过程中自由提问。"""
     pdf_fp: str = Field(..., description="论文指纹, 用于隔离 save/{fp}_ai.json")
     ask: str = Field(..., description="用户的提问内容")
-    quotes: list[dict] = Field(
+    quotes: list[str] = Field(
         default_factory=list,
-        description="用户引用的原文选段 [{quote_gid, quote_msg}]",
-    )
-    quote_content: str = Field(
-        default="",
-        description="getQuoteContent() 展开的完整引用文本",
+        description="用户引用的 msg_fp 指纹数组, e.g. ['b71de2_1790229801234']",
     )
     image_base64: Optional[str] = Field(
         default=None,
@@ -89,7 +85,22 @@ class AiLoadReq(BaseModel):
 # ── 统一响应 ───────────────────────────────────────────────────────────
 
 class AiResp(BaseModel):
-    """统一响应: content 是 Crystal 的最终回复, usage 是上游 LLM usage 统计 (可选), dt 是服务端时间。"""
+    """
+    统一响应: content 是 Crystal 的最终回复, usage 是上游 LLM usage 统计 (可选), dt 是服务端时间。
+
+    字段说明:
+      content  — Crystal 的最终回复内容
+      usage    — 上游 LLM usage 统计 (可选)
+      dt       — 服务端时间戳字符串 (北京时间, 格式: YYYY-MM-DD HH:MM:SS)
+                 前端应优先使用此字段而非本地时间, 确保前后端时区一致。
+                 空字符串表示后端未提供 (兼容老接口)。
+      req_fp   — 本轮 user 消息的 msg_fp (后端 save_paper_memory_node 生成,
+                 '{hex6}_{ts}' 格式)。前端拿到后可写回用户气泡, 与 paper_history
+                 / track 里的 fp 完全对齐。Load 模式此字段为空。
+      res_fp   — 本轮 AI 回复的 msg_fp (后端生成, 同样格式)。前端拿到后写回
+                 AI 占位气泡, 与 paper_history / track 里的 fp 对齐。
+                 论文侧前端通常不消费此字段, 但 ChatView 需要用它同步 AI 气泡 fp。
+    """
     content: str
     usage: Optional[dict] = None
     dt: str = Field(
@@ -97,6 +108,16 @@ class AiResp(BaseModel):
         description="服务端时间戳字符串 (北京时间, 格式: YYYY-MM-DD HH:MM:SS)。"
                     "前端应优先使用此字段而非本地时间, 确保前后端时区一致。"
                     "空字符串表示后端未提供 (兼容老接口)。",
+    )
+    req_fp: str = Field(
+        default="",
+        description="本轮 ReqAsk 的 msg_fp (Load 模式为空)。前端写回用户气泡时使用, "
+                    "保证 ai_res[i].msg_fp 与 paper_history / track 中一致。",
+    )
+    res_fp: str = Field(
+        default="",
+        description="本轮 ResAsk 的 msg_fp (Load 模式为空)。前端写回 AI 占位气泡时使用, "
+                    "保证 ai_res[i].msg_fp 与 paper_history / track 中一致。",
     )
 
 
@@ -136,17 +157,25 @@ class AiPaperEntry(BaseModel):
       ts:          UTC ms, now_ms() 单源
       dt:          "YYYY-MM-DD HH:MM:SS" 北京时间
       hl:          论文高亮上下文 (仅 Req/Res 有)
-      quote_gids:  Ask 引用段 ID 列表
+      msg_fp:      消息指纹 "{hex6}_{ts}", 用于唯一标识一条消息 (ReqAsk/ResAsk 才有)
+      quotes:      Ask 引用段 msg_fp 列表 (仅 ReqAsk 有)
       img:         图片文件名 (Vision 模式); Anno 模式也可能有
       token_count: 仅 Res 有, LLM token 消耗
-      anno_id:     仅 Anno 有, "ANNO_{fp}_{ts}"
+      anno_id:     仅 Anno 有, 固定为 "Anno"
     """
     type: str
     content: str
     ts: int
     dt: str
     hl: Optional[dict] = None
-    quote_gids: Optional[list[str]] = None
+    msg_fp: Optional[str] = Field(
+        default="",
+        description="消息指纹, 格式 '{hex6}_{ts}', 用于引用反查",
+    )
+    quotes: Optional[list[str]] = Field(
+        default=None,
+        description="引用的 msg_fp 列表 (ReqAsk 才有)",
+    )
     img: Optional[str] = ""
     token_count: Optional[int] = None
     anno_id: Optional[str] = None
