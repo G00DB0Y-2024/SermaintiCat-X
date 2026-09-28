@@ -79,6 +79,152 @@ def buildMemoryCompressUserPrompt(
     )
 
 
+# ═══════════════════════════════════════════════════════════════════════
+# Crystal_self (Self-Cognition) 更新 user prompt — 与 memory 平行
+# ═══════════════════════════════════════════════════════════════════════
+
+def SELF_COMPRESS_USER_HEADER() -> str:
+    """
+    Crystal_self compress phase 1 的 user prompt 静态头部:
+    一次性说清楚: 这是 Crystal 自我笔记的压缩任务, 输出压缩后的 Markdown, 不引入新对话内容。
+    """
+    return (
+        "下面是旧的 Crystal_self.md 全文, 以及当前时间。\n"
+        "请按 system 中的「时间分层」规则对其压缩, 输出压缩后的完整 Markdown。\n"
+        "不要引入任何新对话、新事件或新的更新时间戳 (那属于后续 update 阶段的工作)。\n"
+    )
+
+
+def SELF_UPDATE_USER_HEADER() -> str:
+    """
+    Crystal_self update phase 的 user prompt 静态头部:
+    一次性说清楚: 这是在压缩后的旧 self 之上, 融合「刚更新好的 Crystal_memory.md」
+    以及「本轮对话 + 双轨 track」, 输出新的 Crystal_self.md。
+
+    与 memory update 的关键差异: self 多喂一个「更新好的 memory」块 —
+    让 LLM 知道 "我对用户已经形成了哪些认知", 这会反向影响 Crystal 的自我定位。
+    """
+    return (
+        "请基于提供的「当前 Crystal_self.md (压缩后)」「刚更新好的 Crystal_memory.md」"
+        "「本次用户对话」以及作为补充的「当前论文窗口内的轨迹」,\n"
+        "输出压缩并更新后的完整 Crystal_self.md 文本。\n"
+    )
+
+
+def buildSelfCompressUserPrompt(
+    current_self_md: str,
+    current_timestamp: str = "",
+) -> str:
+    """
+    构造 self compress phase 1 的 user prompt (与 memory compress 完全对称):
+      - 静态头部: SELF_COMPRESS_USER_HEADER
+      - 当前时间
+      - 旧 self md 全文
+    """
+    timestamp_section = ""
+    if current_timestamp:
+        timestamp_section = (
+            f"\n【当前时间】{current_timestamp}（北京时间）。\n"
+            "请基于此时间计算每条自我笔记的「距今天数」, 按时间分层压缩。\n"
+        )
+
+    self_block = (
+        "【当前 Crystal_self.md 内容】\n"
+        + (current_self_md if current_self_md else "(空)\n")
+    )
+
+    return (
+        SELF_COMPRESS_USER_HEADER()
+        + timestamp_section
+        + "\n"
+        + self_block
+    )
+
+
+def buildSelfUpdateUserPrompt(
+    current_self_md: str,
+    updated_memory_md: str,
+    user_msg: str,
+    assistant_msg: str,
+    current_timestamp: str = "",
+    ask_track: list[dict] | None = None,
+    load_track: list[dict] | None = None,
+) -> str:
+    """
+    构造 self update phase 的 user prompt:
+      - 静态头部: SELF_UPDATE_USER_HEADER
+      - 动态块: 压缩后的旧 self + 刚更新好的 memory + 双轨 track + 本轮对话 + 时间戳
+
+    与 memory update 的差异 (按你定的规则):
+      ① **加载旧的 Crystal_self.md** (compressed_self) 作为基础
+      ② **额外加载更新过的 Crystal_memory.md** 作为外部参照
+      ③ 不向 update memory 的 prompt 中加载 self (那边始终不传 self)
+
+    ask_track / load_track: 当前触发 fp 窗口内的轨迹, 与 memory update 同源同源过
+    """
+    timestamp_section = ""
+    if current_timestamp:
+        timestamp_section = (
+            f"\n【本次更新时刻】{current_timestamp}（北京时间）。\n"
+            "请将本次更新时刻按 [更新时间: YYYY-MM-DD HH:MM] 规范追加到被修改或新增的条目末尾。\n"
+        )
+
+    self_block = (
+        "【当前 Crystal_self.md 内容 (压缩后)】\n"
+        "(如果是空字符串, 表示这是首次记录)\n"
+        + (current_self_md if current_self_md else "(空)\n")
+    )
+
+    memory_block = (
+        "【刚更新好的 Crystal_memory.md (作为外部参照, 帮助 Crystal 校准自我定位)】\n"
+        "(这一段不是让 self 变成 memory 的内容, 而是供 LLM 看到「我对用户已经形成了哪些认知」"
+        "再决定 Crystal 自己的状态如何适配)\n"
+        + (updated_memory_md if updated_memory_md else "(空)\n")
+    )
+
+    # ── 当前窗口内的 ask 轨迹 ──
+    ask_section = ""
+    if ask_track:
+        lines = ["【当前论文最近 Ask 轨迹 (按时间倒序)】"]
+        for entry in ask_track:
+            ts_str = entry.get("ts_str", "")
+            user = entry.get("user", "")
+            asst = entry.get("assistant", "")
+            lines.append(f"- [{ts_str}] 用户: {user}")
+            lines.append(f"  Crystal: {asst}")
+        ask_section = "\n" + "\n".join(lines) + "\n"
+
+    # ── 当前窗口内的 load 轨迹 ──
+    load_section = ""
+    if load_track:
+        lines = ["【当前论文最近 Load 轨迹 (按时间倒序)】"]
+        for entry in load_track:
+            ts_str = entry.get("ts_str", "")
+            chosen = entry.get("chosen_text", "")
+            asst = entry.get("assistant", "")
+            lines.append(f"- [{ts_str}] 选区: {chosen}")
+            lines.append(f"  Crystal: {asst}")
+        load_section = "\n" + "\n".join(lines) + "\n"
+
+    this_turn_block = (
+        "【本次用户和你核心的对话内容】\n"
+        f"用户: {user_msg}\n"
+        f"Crystal: {assistant_msg}\n"
+    )
+
+    return (
+        SELF_UPDATE_USER_HEADER()
+        + "\n\n"
+        + self_block
+        + "\n\n"
+        + memory_block
+        + ask_section
+        + load_section
+        + this_turn_block
+        + timestamp_section
+    )
+
+
 def buildMemoryUpdateUserPrompt(
     current_memory_md: str,
     user_msg: str,
