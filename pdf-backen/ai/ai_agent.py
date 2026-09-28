@@ -457,8 +457,6 @@ async def _update_crystal_memory_async(
       Phase 2b: Crystal_self   update      (LLM #4) — 基础:compressed_self,
                                              上下文: 更新过的 new_mem
                                              + ask_track + load_track + 当前对话
-      (Phase 2b 严格依赖 Phase 2a 的输出 new_mem, 不能并行;
-       Phase 1 的 1a/1b 完全独立, 走 asyncio.gather 节省一次 wall time)
 
     输入边界规则 (与原有 memory 链路一致):
       · 用户问 Crystal -> system prompt 只注入 Crystal_memory (load_agent_memory_node

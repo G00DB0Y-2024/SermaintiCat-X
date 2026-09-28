@@ -18,7 +18,11 @@ import time
 
 from fastapi import APIRouter, HTTPException
 
-from .ai_config import SAVE_DIR
+from .ai_config import (
+    SAVE_DIR,
+    CRYSTAL_MEMORY_FILE,
+    CRYSTAL_SELF_FILE,
+)
 from .ai_graph import run_ask, run_load
 from .ai_models import (
     AiConfigReq, AiConfigResp,
@@ -149,24 +153,48 @@ async def ai_history(req: AiHistoryReq) -> AiHistoryResp:
 
 # ── /ai/memory ─────────────────────────────────────────────────────────
 
-MEMORY_FP = os.path.join(os.path.dirname(__file__), "memory", "Crystal_memory.md")
+# 记忆库文件清单 — ChatMem.vue 通过 ?file=memory|self 切换查看
+# 默认 memory, 传 self 切换到 Crystal 自我认知笔记
+MEMORY_FILES: dict[str, str] = {
+    "memory": CRYSTAL_MEMORY_FILE,
+    "self":   CRYSTAL_SELF_FILE,
+}
 
 
 @router.get("/memory")
-async def ai_memory() -> dict:
+async def ai_memory(file: str = "memory") -> dict:
     """
-    返回 Crystal 记忆库原文 (Crystal_memory.md), 供 ChatMem.vue 渲染。
+    返回 Crystal 记忆库原文, 供 ChatMem.vue 渲染。
 
-    返回: { content: str, updated: str }
+    Query 参数:
+        file (str): "memory" (默认, Crystal_memory.md — 关于用户)
+                    或 "self"   (Crystal_self.md   — Crystal 自我认知)
+                    其它值视为非法, 返回 400。
+
+    返回: { content: str, updated: str, file: str, filename: str }
         content  — markdown 原文
         updated  — 文件最后修改时间字符串 (北京时间)
-    失败 → HTTP 500。
+        file     — 回显 file 参数 (供前端校准)
+        filename — 原始文件名 (供 ChatMem 状态栏显示 e.g. "Crystal_memory.md")
+    失败 (文件不存在 / 读失败) → HTTP 404 / 500。
     """
-    if not os.path.exists(MEMORY_FP):
-        raise HTTPException(status_code=404, detail="Memory file not found")
+    fp = (file or "memory").strip().lower()
+    path = MEMORY_FILES.get(fp)
+    if path is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown file={file!r}, expected one of: "
+                   f"{sorted(MEMORY_FILES.keys())}",
+        )
+
+    if not os.path.exists(path):
+        raise HTTPException(
+            status_code=404,
+            detail=f"Memory file not found: {os.path.basename(path)}",
+        )
 
     try:
-        mtime = os.path.getmtime(MEMORY_FP)
+        mtime = os.path.getmtime(path)
         # UTC mtime → 北京时间字符串
         updated = time.strftime("%Y-%m-%d %H:%M:%S",
                                 time.localtime(mtime))
@@ -174,10 +202,15 @@ async def ai_memory() -> dict:
         updated = ""
 
     try:
-        with open(MEMORY_FP, "r", encoding="utf-8") as f:
+        with open(path, "r", encoding="utf-8") as f:
             content = f.read()
     except OSError as e:
         debug(f"[/ai/memory] read failed: {e}")
         raise HTTPException(status_code=500, detail=f"Read error: {e}")
 
-    return {"content": content, "updated": updated}
+    return {
+        "content": content,
+        "updated": updated,
+        "file": fp,
+        "filename": os.path.basename(path),
+    }

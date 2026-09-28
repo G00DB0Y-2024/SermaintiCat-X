@@ -45,7 +45,7 @@ def _resolve_api_url(api_url: str) -> str:
 async def _call_llm(
     messages: list[dict],
     vision_model: bool = False,
-    disable_thinking: bool = False,
+    disable_thinking: bool = True,
 ) -> tuple[str, dict]:
     """
     直接调上游 LLM, 配置全部从 ai_config 读取。
@@ -55,6 +55,14 @@ async def _call_llm(
       True 时强制关闭 DeepSeek thinking 模式 (即便 deepseek_thinking 全局开关为 on)。
       用于结构化输出任务 (memory compress / update), 这些任务不需要 reasoning,
       开 thinking 会白白烧 token + 拖慢响应。
+
+      双重保险: DeepSeek 同时认两套 reasoning 字段, 任意一套生效即可关闭思考:
+        · thinking.type              (DeepSeek 原生别名)
+        · reasoning.effort="none"    (OpenAI 标准字段, 跨 provider 通用)
+      本函数同时塞这两个字段, 不管 model 是 DeepSeek 默认开 reasoning, 还是
+      aihubmix / 第三方代理把 reasoning.effort 转成对应字段, 都能确保 thinking 被关掉。
+      默认全局基线 effort="none" 也作为兜底 — 即便 model 默认行为是开 reasoning,
+      全局这一条也能压下去。
 
     返回: (content, usage)
       - content: LLM 回复正文; 解析失败时回落到完整 JSON dump
@@ -75,10 +83,15 @@ async def _call_llm(
 
     request_body: dict = {"model": model, "messages": messages}
 
-    # DeepSeek thinking 参数仅兼容非视觉模型, 视觉模式下不传
-    # disable_thinking 优先级最高: 结构化任务 (memory compress/update) 强制关闭
+
     if is_ds and not vision_model and not disable_thinking and _ai_config["deepseek_thinking"]:
+        # ask 路径 + 用户主动开了 thinking → 启用思考,顺便给个 low 强度兜底
         request_body["thinking"] = {"type": "enabled"}
+        request_body["reasoning"] = {"effort": "low"}
+    else:
+        # 任意"应关思考"的路径 → 用 reasoning.effort="none" 强制关闭
+        request_body["thinking"] = {"type": "disabled"}
+        request_body["reasoning"] = {"effort": "none"}
 
     headers = {
         "Authorization": f"Bearer {api_key}",
