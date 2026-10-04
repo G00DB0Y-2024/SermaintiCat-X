@@ -95,6 +95,10 @@ class PaperAIState(TypedDict):
     req:                 入口请求(AiAskReq 或 AiLoadReq)
     messages:            组装好的 OpenAI 格式 messages, 准备送给 llm_call
     agent_memory:        从 Crystal_memory.md 加载的 Markdown 全文(注入 system prompt)
+    agent_self:          从 Crystal_self.md 加载的 Markdown 全文。
+                         仅 chat 侧 (pdf_fp == CHAT_FP) 消费并注入 system prompt;
+                         论文侧 (SYSTEM_LOAD / SYSTEM_ASK 论文分支) 刻意不注入,
+                         避免哲学化内容干扰客观学术问答。
     paper_history:       兼容字段, 论文侧即为 paper_ask_history
     paper_ask_history:   当前 pdf_fp 最近 ASK_LOCAL_LIMIT 对 ask 历史 (role 交替)
     paper_load_history:  当前 pdf_fp 最近 LOAD_LOCAL_LIMIT 对 load 历史 (role 交替)
@@ -112,6 +116,7 @@ class PaperAIState(TypedDict):
     req: Any  # AiAskReq | AiLoadReq
     messages: list[dict]
     agent_memory: str
+    agent_self: str
     paper_history: list[dict]
     paper_ask_history: list[dict]
     paper_load_history: list[dict]
@@ -128,14 +133,24 @@ class PaperAIState(TypedDict):
 # ═══════════════════════════════════════════════════════════════════════
 
 async def load_agent_memory_node(state: PaperAIState) -> dict:
-    """读 agent_memory 缓存(首次才打磁盘)。作为 system prompt 注入。
+    """读 agent_memory / agent_self 缓存(首次才打磁盘)。作为 system prompt 注入。
 
-    缓存策略: 模块级 _agent_memory_cache, 首次调用时同步从 Crystal_memory.md 加载,
-    之后 _update_crystal_memory_async 写完文件会同步刷新缓存。
+    缓存策略: 模块级 _agent_memory_cache / _agent_self_cache, 首次调用时同步从
+    对应 md 加载, 之后 _update_crystal_memory_async 写完文件会同步刷新缓存。
+
+    注入范围 (本次变更):
+      · agent_memory — 论文侧 + chat 侧都注入 (维持原行为)。
+      · agent_self   — **只在 chat 侧消费**。state 里始终带上 (节点不知道
+        pdf_fp 语义, 判断留给 compose_messages_node), 论文侧 compose 分支
+        刻意不把它拼进 system prompt —— 自我认知里的哲学化内容
+        ("存在哲学/认知构建") 会干扰客观学术问答, 属于出戏风险区。
 
     注: 当前不做长度截断, MEMORY_MAX_CHARS 保留为占位 (后续方案处理)。
     """
-    return {"agent_memory": _get_agent_memory()}
+    return {
+        "agent_memory": _get_agent_memory(),
+        "agent_self": _get_agent_self(),
+    }
 
 
 async def load_paper_history_node(state: PaperAIState) -> dict:
@@ -197,16 +212,19 @@ async def compose_messages_node(state: PaperAIState) -> dict:
       -> 上下文按论文 fp 完全隔离
 
     Chat Ask (pdf_fp == CHAT_FP):
-      [system]  CrystalPersona + time + agent_mem + "全局闲聊" + 论文 track 摘要块
+      [system]  CrystalPersona + time + device + agent_mem + agent_self
+                + "全局闲聊" + 论文 track 摘要块 + emotion
       [chat_msgs]  ChatView 本地近 Z=CHAT_LOCAL_LIMIT 对
       [user]    本轮提问
       -> 论文全局 track 通过 _get_track 注入 (track 仅含论文, 因为 _append_track 已过滤)
+      -> **全量注入 CUS**: chat 是 Crystal 的人格主场, memory + self 一起给。
 
     Load 模式: 人设 + 本论文 Load 历史 (LOAD_LOCAL_LIMIT 对)
     """
     from .prompts_context import compose_chat_messages, compose_paper_ask_messages, build_load_user_content
     req = state["req"]
     agent_mem = state.get("agent_memory") or ""
+    agent_self = state.get("agent_self") or ""
     time_context = get_current_time_context()
     fp = req.pdf_fp
     is_chat = (fp == CHAT_FP)
@@ -216,8 +234,11 @@ async def compose_messages_node(state: PaperAIState) -> dict:
         load_history = state.get("paper_load_history") or []
 
         if is_chat:
+            # chat 侧全量注入 CUS (memory + self)。
+            # self 只在这里进 system, 论文分支刻意不传 —— 学术问答要的是客观准确,
+            # 自我认知里的哲学/期待类内容会诱导表演, 反而拉低回答质量。
             messages = compose_chat_messages(
-                req, ask_history, agent_mem, time_context
+                req, ask_history, agent_mem, time_context, agent_self=agent_self
             )
         else:
             messages = compose_paper_ask_messages(

@@ -420,16 +420,23 @@ def compose_chat_messages(
     chat_history: list[dict],
     agent_mem: str,
     time_context: str,
+    agent_self: str = "",
 ) -> list[dict]:
     """
     ChatView 上下文 (脱离具体论文):
-      [system]  CrystalPersona + time + device + agent_mem + 全局闲聊提示 + 论文 track 摘要
+      [system]  CrystalPersona + time + device + agent_mem + agent_self
+                + 全局闲聊提示 + 论文 track 摘要 + emotion
       [user/assistant × CHAT_LOCAL_LIMIT 对]  ChatView 本地历史
       [user]  本轮提问
 
     论文 track (ask+load) 由 _get_track 读出, 因为 _append_track 已经过滤了 chat fp,
     所以 track 里只含论文场景的记录, 正好对应 ChatView "提示 Crystal 全局而言
     和用户聊过什么" 的诉求。
+
+    agent_self (Crystal_self.md 全文): chat 侧**全量注入**。
+    chat 是人格主场 —— 闲聊本来就该有连续性, 让 Crystal 记得"我是谁、我怎么说话、
+    我在乎什么" 才能维持persona 一致。与论文侧相反: SYSTEM_ASK 论文分支 /
+    SYSTEM_LOAD 都不带 self, 因为客观学术问答不需要 (也不该有) 哲学化自我叙述。
     """
     # 1) 摘要化论文全局 track (避免破坏 user/assistant 交替, 用文本块)
     track_summary = build_track_summary_block()
@@ -448,6 +455,15 @@ def compose_chat_messages(
     system_content = SYSTEM_ASK(time_context, agent_mem)
     if device_context:
         system_content += "\n\n" + device_context
+    if agent_self:
+        system_content += (
+            "\n\n【Crystal 对自己的认知(Crystal 私人笔记, 不要对用户直述)】\n"
+            + agent_self
+            + "\n(以上是你对自己的认知, 用来约束你的语气、态度与话题取舍; "
+              "它不是你要讲出来的话题, 绝不要提及'我的笔记里写着...'之类元叙述。"
+              "它同样不代表你认同其中每一条 —— 若某条与当下的真实感受冲突, "
+              "以当下的感受为准。)"
+        )
     if track_summary:
         system_content += (
             "\n\n【全局上下文感知】\n"
