@@ -1,0 +1,27 @@
+{
+  "ask_count_by_fp": {
+    "crystal_chat": 124
+  },
+  "emotion_vector": {
+    "valence": 0.7736474459764757,
+    "arousal": 0.3402322511644585,
+    "novelty": 0.28182620347979326,
+    "clarity": 1.0,
+    "last_update_dt": "2026-10-04 13:20:53",
+    "version": 1
+  },
+  "llm_configs": {
+    "main": {
+      "api_key": "sk-8lofrp826JoFBWwFA441CdBf3bB347779c34Cb967b0e84Db",
+      "api_url": "https://aihubmix.com/v1/chat/completions",
+      "model": "gemini-3.1-flash-lite",
+      "vision_model": "gemini-3.1-flash-lite",
+      "deepseek_thinking": false
+    },
+    "lint": {
+      "api_key": "sk-8lofrp826JoFBWwFA441CdBf3bB347779c34Cb967b0e84Db",
+      "api_url": "https://aihubmix.com/v1/chat/completions",
+      "model": "gemini-2.5-flash-lite"
+    }
+  }
+}

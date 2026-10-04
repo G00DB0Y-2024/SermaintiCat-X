@@ -35,7 +35,8 @@ from .ai_config import (
 from .ai_io import (
     _agent_memory_cache,  # noqa: F401  # 由 _set_agent_memory_cache 同包维护
     _append_track,
-    _ask_count_by_fp,
+    _get_ask_count,
+    _inc_ask_count,
     _ask_track_list,  # noqa: F401  # 模块单例引用保持
     _flush_track_to_disk,
     _get_agent_memory,
@@ -119,6 +120,7 @@ class PaperAIState(TypedDict):
     dt: str
     req_fp: str
     res_fp: str
+    emotion: dict
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -254,6 +256,7 @@ async def llm_call_node(state: PaperAIState) -> dict:
     content, usage = await _call_llm(
         messages=messages,
         vision_model=is_vision,
+        disable_thinking=False,
     )
 
     return {
@@ -347,14 +350,17 @@ def _should_update_memory(fp: str, is_chat: bool) -> bool:
       (ChatView 是与 Crystal 闲聊的主战场, memory 理应吸收 chat 内容;
        计数按 fp 分桶, chat 单独一桶, 不与论文互相干扰)
     - 触发条件 (节流在调用方对外过滤 vision 后再走到这里):
-        (_ask_count_by_fp[fp] % MEMORY_UPDATE_EVERY_N) == 0
+        (count % MEMORY_UPDATE_EVERY_N) == 0
       即第 N/MEMORY_UPDATE_EVERY_N 次 ask 时 (例如 N=1 表示每次) 触发。
+
+    计数读 _get_ask_count (走 params.json 持久化), 冷启动后依然是原来的进度,
+    不会因为服务器重启而在前几轮集中触发。
 
     注意: 函数本身不做 vision 过滤 (那在 update_agent_memory_node 入口处判断),
     这里只做 is_chat 参与下的节流逻辑 ——
     现在 is_chat 不再硬短路, 与论文走相同路径, 让 MEMORY_UPDATE_EVERY_N 在两个场景都生效。
     """
-    return (_ask_count_by_fp.get(fp, 0) % MEMORY_UPDATE_EVERY_N) == 0
+    return (_get_ask_count(fp) % MEMORY_UPDATE_EVERY_N) == 0
 
 
 async def update_agent_memory_node(state: PaperAIState) -> dict:
@@ -383,9 +389,12 @@ async def update_agent_memory_node(state: PaperAIState) -> dict:
         #  计数按 fp 各自独立成桶 — "crystal_chat" 一桶, 每篇论文各一桶,
         #  互不干扰。MEMORY_UPDATE_EVERY_N 对两桶都生效, 设 1 就是每次都触发。)
         if not is_vision:
-            _ask_count_by_fp[fp] = _ask_count_by_fp.get(fp, 0) + 1
+            # 走 _inc_ask_count 而不是直接改 dict —— 它会立刻落盘 params.json,
+            # 服务器重启后节流进度不丢。
+            count = _inc_ask_count(fp)
             trigger_mem = _should_update_memory(fp, is_chat)
         else:
+            count = _get_ask_count(fp)   # vision 不计数, 仅用于日志
             trigger_mem = False
 
         # 非 chat 场景下, 把 ask 追加到论文全局 track (track_summary_block 喂 ChatView)。
@@ -405,7 +414,7 @@ async def update_agent_memory_node(state: PaperAIState) -> dict:
             if _memory_updating:
                 debug(
                     f"[crystal_memory] SKIP (busy at node): fp={fp[:12]} "
-                    f"count={_ask_count_by_fp[fp]}"
+                    f"count={count}"
                 )
                 return {}
             task = asyncio.create_task(
@@ -413,14 +422,14 @@ async def update_agent_memory_node(state: PaperAIState) -> dict:
             )
             debug(
                 f"[crystal_memory] scheduled [ask throttled]: fp={fp[:12]} "
-                f"count={_ask_count_by_fp[fp]} "
+                f"count={count} "
                 f"user_len={len(req.ask)} asst_len={len(answer)} "
                 f"task_id={id(task)}"
             )
         else:
             debug(
                 f"[crystal_memory] SKIP: is_chat={is_chat} is_vision={is_vision} "
-                f"count={_ask_count_by_fp.get(fp, 0)}/{MEMORY_UPDATE_EVERY_N}"
+                f"count={_get_ask_count(fp)}/{MEMORY_UPDATE_EVERY_N}"
             )
     else:
         # Load 模式: 论文 fp 写 load_track (chat fp 不写)

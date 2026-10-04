@@ -109,7 +109,7 @@
             <div v-for="(item, index) in ai_res" ref="render" :key="index"
               style="display: block; background-color: transparent;">
               <gptRenderUnit style="width: 100%;" :content="item.content" :datetime="item.dt" :hldata="item.hl"
-                :headtype="item.type" :gid="index" :vid="vid" :img_name="item.img"
+                :headtype="item.type" :gid="index" :vid="vid" :img_name="item.img" :pdf_fp="pdf_fp"
                 :entry-flag="item.flag"
                 :editting="index === annotation_edit_index"
                 :_thinking="index === placeholderIndex && placeholderIndex !== -1"
@@ -801,10 +801,11 @@ export default{
             this.$axios.put('/reqImg', {
               imgname: history_res.img? history_res.img:img_name,
               base64:this.askImage.img,
-              mode:'ADD'
+              mode:'ADD',
+              fp:this.pdf_fp          // 后端据此落到 static/{fp}/
             })
             history_res.img = history_res.img? history_res.img:img_name
-            
+
           }
           this.handleAiChange('SET', this.annotation_edit_index, history_res)  //如果同时填写index和content，表示修改
           this.handleAskAreaBlur()
@@ -821,7 +822,8 @@ export default{
             this.$axios.put('/reqImg', {
               imgname: img_name,
               base64:this.askImage.img,
-              mode:'ADD'
+              mode:'ADD',
+              fp:this.pdf_fp          // 后端据此落到 static/{fp}/
             })
           }
 
@@ -932,7 +934,7 @@ export default{
           this.annotation_edit_texts = this.parseMessage(this.ai_res[index].content)
           this.askContent = this.annotation_edit_texts[0]
           if(this.ai_res[index].img!==''){
-            this.readImageData('http://localhost:8225/static/'+this.ai_res[index].img)
+            this.readImageData(`http://localhost:8225/static/${this.pdf_fp}/${this.ai_res[index].img}`)
           }
 
         }
@@ -978,7 +980,8 @@ export default{
           this.$axios.put('/reqImg', {
             imgname: target.img,
             base64:"",
-            mode:'DEL'
+            mode:'DEL',
+            fp:this.pdf_fp          // 与落盘时同一个 fp, 否则后端找不到文件
           })
         }
         this.ai_res.splice(index, 1)
@@ -1108,7 +1111,8 @@ export default{
         this.$axios.put('/reqImg', {
           imgname: history_res.img,
           base64:"",
-          mode:'DEL'
+          mode:'DEL',
+          fp:this.pdf_fp          // 与落盘时同一个 fp, 否则后端找不到文件
         })
         history_res.img = ''
         this.handleAiChange('SET', this.annotation_edit_index, history_res)  //如果同时填写index和content，表示修改

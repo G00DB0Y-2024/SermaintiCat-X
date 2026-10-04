@@ -1,5 +1,5 @@
 """
-AI HTTP 端点 — /ai/config、/ai/ask、/ai/load、/ai/history、/ai/memory。
+AI HTTP 端点 — /ai/config、/ai/ask、/ai/load、/ai/history、/ai/memory、/ai/emotion。
 
 设计:
 - /ai/config (POST): 前端 SET_MODEL 时调用, 更新 ai_agent.ai_config 模块变量。
@@ -9,6 +9,7 @@ AI HTTP 端点 — /ai/config、/ai/ask、/ai/load、/ai/history、/ai/memory。
 - /ai/load (POST):   用户选中文本要求总结, 读 ai_config 调 LLM。
 - /ai/history (POST): 读取 save/{fp}_ai.json 原始 entry 列表 (供 ChatView 加载历史)。
 - /ai/memory  (GET):  读取 Crystal_memory.md 原文供 ChatMem.vue 渲染。
+- /ai/emotion (GET):  返回当前 emotion_vector, 供前端 HomeView 轮询拉取。
 """
 from __future__ import annotations
 
@@ -17,6 +18,8 @@ import json
 import time
 
 from fastapi import APIRouter, HTTPException
+from .ai_io import _load_emotion
+from .ai_emotion import EMOTION_LLM_CONFIG, update_emotion_llm_config
 
 from .ai_config import (
     SAVE_DIR,
@@ -29,6 +32,7 @@ from .ai_models import (
     AiAskReq, AiLoadReq, AiResp,
     AiHistoryReq, AiHistoryResp,
 )
+from pydantic import BaseModel
 from .ai_config import get_current_config, update_ai_config
 from utils.log import debug
 
@@ -59,6 +63,53 @@ async def ai_config_get() -> AiConfigResp:
     return AiConfigResp(**get_current_config())
 
 
+# ── /ai/emotion ─────────────────────────────────────────────────────────
+
+@router.get("/emotion")
+async def ai_emotion() -> dict:
+    """返回当前情绪向量, 供前端 HomeView 轮询拉取。"""
+    emo = _load_emotion()
+    debug(
+        f"[/ai/emotion] hit → "
+        f"valence={emo.get('valence'):+.4f} "
+        f"arousal={emo.get('arousal'):+.4f} "
+        f"novelty={emo.get('novelty'):+.4f} "
+        f"clarity={emo.get('clarity'):+.4f} "
+        f"dt={emo.get('last_update_dt')!r} "
+        f"v={emo.get('version')} "
+        f"|max|={max(abs(emo.get(axis, 0.0)) for axis in ('valence','arousal','novelty','clarity')):.4f}"
+    )
+    return emo
+
+
+# ── /ai/emotion/config ─────────────────────────────────────────────────
+
+class LintLLMConfigReq(BaseModel):
+    api_key: str = ""
+    api_url: str = ""
+    model: str = "deepseek-flash"
+
+
+@router.get("/emotion/config")
+async def ai_emotion_config_get() -> LintLLMConfigReq:
+    """返回当前 Lint LLM 配置快照。"""
+    return LintLLMConfigReq(**EMOTION_LLM_CONFIG)
+
+
+@router.post("/emotion/config")
+async def ai_emotion_config_post(req: LintLLMConfigReq) -> LintLLMConfigReq:
+    """
+    前端设置 Lint LLM (弱模型) 配置。
+    存入 ai_emotion.EMOTION_LLM_CONFIG 模块变量, emotion_llm_node 读取此配置。
+    """
+    update_emotion_llm_config(req.model_dump())
+    debug(
+        f"[/ai/emotion/config] api_url={req.api_url!r}  "
+        f"model={req.model!r}  has_key={bool(req.api_key)}"
+    )
+    return LintLLMConfigReq(**EMOTION_LLM_CONFIG)
+
+
 # ── /ai/ask ────────────────────────────────────────────────────────────
 
 @router.post("/ask", response_model=AiResp)
@@ -79,6 +130,7 @@ async def ai_ask(req: AiAskReq) -> AiResp:
             dt=result.get("dt", ""),
             req_fp=result.get("req_fp", "") or "",
             res_fp=result.get("res_fp", "") or "",
+            emotion=result.get("emotion") or {},
         )
     except HTTPException:
         raise

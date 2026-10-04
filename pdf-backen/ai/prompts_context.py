@@ -14,7 +14,8 @@ from __future__ import annotations
 from typing import Optional
 
 from .ai_models import AiAskReq, AiLoadReq
-from .ai_io import _get_track
+from .ai_emotion import build_emotion_context_block
+from .ai_io import _get_track, _load_emotion
 from .ai_utils import format_dt_second, get_device_context
 from .prompts_system import SYSTEM_ASK, SYSTEM_LOAD
 from utils.log import debug
@@ -34,6 +35,9 @@ def MEMORY_UPDATE_USER_HEADER() -> str:
     return (
         "请基于提供的「当前 Crystal_memory.md」「本次用户对话」以及作为补充的「当前论文窗口内的轨迹」,\n"
         "输出压缩并更新后的完整 Crystal_memory.md 文本。\n"
+        "【保真提醒】本次更新与压缩均按「保真优先」原则: "
+        "合并/淘汰时保留用户在研究方向、工具/方法、表达习惯、忌讳点上的具体事实与示例, "
+        "避免把笔记抹平为「用户喜欢 X 方向」这种抽象描述。\n"
     )
 
 
@@ -44,7 +48,10 @@ def MEMORY_COMPRESS_USER_HEADER() -> str:
     """
     return (
         "下面是旧的 Crystal_memory.md 全文, 以及当前时间。\n"
-        "请按 system 中的「时间分层」规则对其压缩, 输出压缩后的完整 Markdown。\n"
+        "请按 system 中「价值分层 + 保真优先」的原则对其压缩, 输出压缩后的完整 Markdown。\n"
+        "默认目标是剔除冗余与过期 (压缩到 80-95% 区间), 保留可回忆的具体细节 "
+        "(研究方向子领域、工具/方法的具体名称、具体偏好例子、明确忌讳), "
+        "而不是把笔记抹平为抽象描述。\n"
         "不要引入任何新对话、新事件或新的更新时间戳 (那属于后续 update 阶段的工作)。\n"
     )
 
@@ -90,7 +97,10 @@ def SELF_COMPRESS_USER_HEADER() -> str:
     """
     return (
         "下面是旧的 Crystal_self.md 全文, 以及当前时间。\n"
-        "请按 system 中的「时间分层」规则对其压缩, 输出压缩后的完整 Markdown。\n"
+        "请按 system 中「价值分层 + 保真优先」的原则对其压缩, 输出压缩后的完整 Markdown。\n"
+        "默认目标是剔除冗余与过期 (压缩到 80-95% 区间), 保留可回忆的具体细节 "
+        "(具体表达偏好、具体想学/想尝试的事、具体场景示例), "
+        "而不是把自我认知抹平为抽象描述。\n"
         "不要引入任何新对话、新事件或新的更新时间戳 (那属于后续 update 阶段的工作)。\n"
     )
 
@@ -108,6 +118,9 @@ def SELF_UPDATE_USER_HEADER() -> str:
         "请基于提供的「当前 Crystal_self.md (压缩后)」「刚更新好的 Crystal_memory.md」"
         "「本次用户对话」以及作为补充的「当前论文窗口内的轨迹」,\n"
         "输出压缩并更新后的完整 Crystal_self.md 文本。\n"
+        "【保真提醒】本次更新与压缩均按「保真优先」原则: "
+        "合并/淘汰时保留 Crystal 的具体表达偏好、具体想学/想尝试的事、具体场景示例, "
+        "避免把自我认知抹平为「性格开朗/喜欢聊天」这种抽象描述。\n"
     )
 
 
@@ -425,6 +438,13 @@ def compose_chat_messages(
     device = getattr(req, "device", None) or None
     device_context = get_device_context(device) if device else ""
 
+    # 3) 当前情绪上下文 (ChatView 专属 — 论文侧完全跳过, 不影响论文客观问答)
+    #    读取时机是 compose_messages_node (LLM 调用前), 因此拿到的是"上一轮
+    #    对话沉淀下的情绪快照"; 本轮 emotion_llm_node 在 save_paper_memory_node 之后才
+    #    异步更新, 那个新值留给下一轮用。这个回路天然闭环:
+    #      上轮 emotion → 影响本轮 LLM 语气 → 本轮 Lint LLM 评估 → 下轮 emotion 基线
+    emotion_context = build_emotion_context_block(_load_emotion())
+
     system_content = SYSTEM_ASK(time_context, agent_mem)
     if device_context:
         system_content += "\n\n" + device_context
@@ -433,6 +453,8 @@ def compose_chat_messages(
             "\n\n【全局上下文感知】\n"
             + track_summary
         )
+    if emotion_context:
+        system_content += "\n\n" + emotion_context
 
     messages: list[dict] = [
         {"role": "system", "content": system_content},

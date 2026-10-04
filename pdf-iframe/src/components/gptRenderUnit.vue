@@ -27,7 +27,7 @@
       <!-- 把图片搬进气泡内,左右各 15px 由 MsgUnitComponent 的
            .msg-bubble-extra 容器提供 -->
       <template v-if="img_name" #extra>
-        <image-render :img_name="img_name" />
+        <image-render :img_name="img_name" :pdf_fp="pdf_fp" />
       </template>
     </MsgUnitComponent>
   </div>
@@ -44,7 +44,7 @@ import imageRender from './imageRender.vue'
 import AgentAvatar from '../assets/images/agent_reason.png'
 
 export default {
-  props: ['content', 'datetime', 'hldata', 'gid', 'headtype', 'vid', 'img_name', 'editting', '_thinking', 'tokenCount', 'entryFlag'],
+  props: ['content', 'datetime', 'hldata', 'gid', 'headtype', 'vid', 'img_name', 'pdf_fp', 'editting', '_thinking', 'tokenCount', 'entryFlag'],
   emits: ['onQuote', 'onClose', 'onHlClick', 'onANNOClick', 'annoClick'],
   components: { MsgUnitComponent, imageRender },
   data() { return {} },

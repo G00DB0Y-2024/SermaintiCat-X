@@ -46,10 +46,16 @@ async def _call_llm(
     messages: list[dict],
     vision_model: bool = False,
     disable_thinking: bool = True,
+    *,
+    emotion_config: dict | None = None,
 ) -> tuple[str, dict]:
     """
-    直接调上游 LLM, 配置全部从 ai_config 读取。
+    直接调上游 LLM, 配置从 ai_config 读取 (或 emotion_config 覆盖)。
     vision_model 参数仅用于判断 DeepSeek thinking 开关(仅非视觉模式有效)。
+
+    emotion_config:
+      可选 dict {"api_key", "api_url", "model"} 用于覆盖 ai_config。
+      当前仅 emotion 模块调此参数, 让 Lint LLM 走独立配置。
 
     disable_thinking:
       True 时强制关闭 DeepSeek thinking 模式 (即便 deepseek_thinking 全局开关为 on)。
@@ -68,9 +74,11 @@ async def _call_llm(
       - content: LLM 回复正文; 解析失败时回落到完整 JSON dump
       - usage  : 上游 LLM usage 统计 (可能为空 dict)
     """
-    api_url = _ai_config["api_url"]
-    api_key = _ai_config["api_key"]
-    model = _ai_config["vision_model"] if vision_model else _ai_config["model"]
+    # 优先用 emotion_config 覆盖; 否则回落到全局 ai_config
+    cfg = emotion_config if emotion_config else _ai_config
+    api_url = cfg["api_url"]
+    api_key = cfg["api_key"]
+    model = cfg["vision_model"] if vision_model else cfg["model"]
 
     if not api_url or not api_key or not model:
         raise ValueError(
@@ -84,10 +92,10 @@ async def _call_llm(
     request_body: dict = {"model": model, "messages": messages}
 
 
-    if is_ds and not vision_model and not disable_thinking and _ai_config["deepseek_thinking"]:
-        # ask 路径 + 用户主动开了 thinking → 启用思考,顺便给个 low 强度兜底
+    if is_ds and not vision_model and not disable_thinking:
+        # ask 路径 + 用户主动开了 thinking → 启用思考,顺便给个 high 强度兜底
         request_body["thinking"] = {"type": "enabled"}
-        request_body["reasoning"] = {"effort": "low"}
+        request_body["reasoning"] = {"effort": "high"}
     else:
         # 任意"应关思考"的路径 → 用 reasoning.effort="none" 强制关闭
         request_body["thinking"] = {"type": "disabled"}

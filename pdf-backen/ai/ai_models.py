@@ -87,6 +87,7 @@ class AiLoadReq(BaseModel):
 class AiResp(BaseModel):
     """
     统一响应: content 是 Crystal 的最终回复, usage 是上游 LLM usage 统计 (可选), dt 是服务端时间。
+    emotion 是当前情绪向量, 透传给前端 HomeView 驱动 profile-cover 切换。
 
     字段说明:
       content  — Crystal 的最终回复内容
@@ -100,6 +101,8 @@ class AiResp(BaseModel):
       res_fp   — 本轮 AI 回复的 msg_fp (后端生成, 同样格式)。前端拿到后写回
                  AI 占位气泡, 与 paper_history / track 里的 fp 对齐。
                  论文侧前端通常不消费此字段, 但 ChatView 需要用它同步 AI 气泡 fp。
+      emotion  — 当前情绪向量 {valence, arousal, novelty, clarity, last_update_dt}。
+                 前端 HomeView 用此字段驱动 profile-cover 切图。
     """
     content: str
     usage: Optional[dict] = None
@@ -118,6 +121,11 @@ class AiResp(BaseModel):
         default="",
         description="本轮 ResAsk 的 msg_fp (Load 模式为空)。前端写回 AI 占位气泡时使用, "
                     "保证 ai_res[i].msg_fp 与 paper_history / track 中一致。",
+    )
+    emotion: dict = Field(
+        default_factory=dict,
+        description="当前情绪向量 {valence, arousal, novelty, clarity, last_update_dt}。"
+                    "HomeView 拉取 /ai/emotion 端点或从 ask 响应中获取此字段。",
     )
 
 

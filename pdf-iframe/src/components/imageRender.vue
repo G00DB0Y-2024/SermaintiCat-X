@@ -18,7 +18,6 @@
     :placeholder="`Fig. ${img_name.split('.')[0].split('_')[1]}`"
     @change="handleNameChange"
     >
-
     
 </div>
 
@@ -28,7 +27,7 @@
 <script>
 
 export default{
-    props:['img_name'],
+    props:['img_name','pdf_fp'],
     data(){
         return{
             img_desc:'',
@@ -46,7 +45,7 @@ export default{
     },
     methods:{
         handleImgClick(){
-            window.open('http://localhost:8225/static/'+this.img_name, "_blank");
+            window.open(this.imgUrl, "_blank");
 
         },
         handleNameChange(){
@@ -57,8 +56,14 @@ export default{
     },
     computed:{
 
+        // 图片按 fp 分子目录存放: static/{fp}/{img_name}
+        // (后端 PdfBacken._img_path 落盘, 这里对应拼读取路径)
+        imgUrl(){
+            return `http://localhost:8225/static/${this.pdf_fp}/${this.img_name}`
+        },
+
         loadImg(){
-            return 'http://localhost:8225/static/'+this.img_name+`?t=${Date.now()}`
+            return this.imgUrl + `?t=${Date.now()}`
         },
 
     }

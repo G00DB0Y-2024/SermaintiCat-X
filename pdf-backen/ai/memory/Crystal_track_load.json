@@ -1,1 +1,16 @@
-[{"ts": 1790528809913, "ts_str": "2026-09-28 01:06:49", "pdf_fp": "5686bcc7d8f17ce0af87cf64f3fa2bf6", "chosen_text": "to what is commonly called introspection, or what psychologists call “meta-cognition”—the ability to conceive and make use of internal representations of one’s own knowledge and abilities.", "assistant": "**内省**(introspection) 或心理学所称的 **元认知**(meta-cognition)，指主体能形成并运用关于自身知识和能力的内部表征；在文中对应 **自我监控**(C2, self-monitoring)。\n\n**意识**(consciousness) 被区分出三层含义：\n- 医学/非及物用法：**警觉/清醒**(vigilance/wakefulness)，涉及睡眠、麻醉、"}, {"ts": 1790532544375, "ts_str": "2026-09-28 02:09:04", "pdf_fp": "5686bcc7d8f17ce0af87cf64f3fa2bf6", "chosen_text": "e propose that C1 and C2 constitute orthogonal dimensions of conscious computations. This is not to say that C1 and C2 do not involve overlapping physical substrates; in fact, as we review below, in t", "assistant": "###### 意识计算的维度划分\n\n作者提出 **C1**（一级意识，First-order Consciousness）与 **C2**（二级意识/元认知，Second-order Consciousness/Metacognition）是意识计算中两个正交的维度。尽管两者在人类大脑中都依赖于前额叶皮层（Prefrontal Cortex, PFC），但在实证与概念层面可以解离：存在无元认知的可"}]
+[
+    {
+        "ts": 1790528809913,
+        "ts_str": "2026-09-28 01:06:49",
+        "pdf_fp": "5686bcc7d8f17ce0af87cf64f3fa2bf6",
+        "chosen_text": "to what is commonly called introspection, or what psychologists call “meta-cognition”—the ability to conceive and make use of internal representations of one’s own knowledge and abilities.",
+        "assistant": "**内省**(introspection) 或心理学所称的 **元认知**(meta-cognition)，指主体能形成并运用关于自身知识和能力的内部表征；在文中对应 **自我监控**(C2, self-monitoring)。\n\n**意识**(consciousness) 被区分出三层含义：\n- 医学/非及物用法：**警觉/清醒**(vigilance/wakefulness)，涉及睡眠、麻醉、"
+    },
+    {
+        "ts": 1790532544375,
+        "ts_str": "2026-09-28 02:09:04",
+        "pdf_fp": "5686bcc7d8f17ce0af87cf64f3fa2bf6",
+        "chosen_text": "e propose that C1 and C2 constitute orthogonal dimensions of conscious computations. This is not to say that C1 and C2 do not involve overlapping physical substrates; in fact, as we review below, in t",
+        "assistant": "###### 意识计算的维度划分\n\n作者提出 **C1**（一级意识，First-order Consciousness）与 **C2**（二级意识/元认知，Second-order Consciousness/Metacognition）是意识计算中两个正交的维度。尽管两者在人类大脑中都依赖于前额叶皮层（Prefrontal Cortex, PFC），但在实证与概念层面可以解离：存在无元认知的可"
+    }
+]
