@@ -39,12 +39,14 @@ from .ai_io import (
     _inc_ask_count,
     _ask_track_list,  # noqa: F401  # 模块单例引用保持
     _flush_track_to_disk,
+    _get_agent_explore,
     _get_agent_memory,
     _get_agent_self,
     _get_track,
     _invalidate_history_cache,
     _load_chat_history_for_memory,
     _load_paper_history,
+    load_chat_messages,
     _paper_history_path,
     _read_json_safe,
     _set_agent_memory_cache,
@@ -99,6 +101,9 @@ class PaperAIState(TypedDict):
                          仅 chat 侧 (pdf_fp == CHAT_FP) 消费并注入 system prompt;
                          论文侧 (SYSTEM_LOAD / SYSTEM_ASK 论文分支) 刻意不注入,
                          避免哲学化内容干扰客观学术问答。
+    agent_explore:       从 explore.md 加载的 Markdown 全文 (ACUS 的 A 元素)。
+                         仅 chat 侧消费并注入 system prompt —— 称呼约定/互动仪式/
+                         边界忌讳已从 memory 迁出, chat 侧不读 A 就会忘记怎么称呼他。
     paper_history:       兼容字段, 论文侧即为 paper_ask_history
     paper_ask_history:   当前 pdf_fp 最近 ASK_LOCAL_LIMIT 对 ask 历史 (role 交替)
     paper_load_history:  当前 pdf_fp 最近 LOAD_LOCAL_LIMIT 对 load 历史 (role 交替)
@@ -117,6 +122,7 @@ class PaperAIState(TypedDict):
     messages: list[dict]
     agent_memory: str
     agent_self: str
+    agent_explore: str
     paper_history: list[dict]
     paper_ask_history: list[dict]
     paper_load_history: list[dict]
@@ -133,23 +139,29 @@ class PaperAIState(TypedDict):
 # ═══════════════════════════════════════════════════════════════════════
 
 async def load_agent_memory_node(state: PaperAIState) -> dict:
-    """读 agent_memory / agent_self 缓存(首次才打磁盘)。作为 system prompt 注入。
+    """读 agent_memory / agent_self / agent_explore 缓存(首次才打磁盘)。作为 system prompt 注入。
 
-    缓存策略: 模块级 _agent_memory_cache / _agent_self_cache, 首次调用时同步从
-    对应 md 加载, 之后 _update_crystal_memory_async 写完文件会同步刷新缓存。
+     缓存策略: 模块级 _agent_memory_cache / _agent_self_cache / _explore_cache,
+    首次调用时同步从对应 md 加载, 之后各写入回路写完文件会同步刷新缓存。
 
     注入范围 (本次变更):
-      · agent_memory — 论文侧 + chat 侧都注入 (维持原行为)。
-      · agent_self   — **只在 chat 侧消费**。state 里始终带上 (节点不知道
+      · agent_memory  — 论文侧 + chat 侧都注入 (维持原行为)。内容是「他是什么样的人」(U)。
+      · agent_self    — **只在 chat 侧消费**。state 里始终带上 (节点不知道
         pdf_fp 语义, 判断留给 compose_messages_node), 论文侧 compose 分支
         刻意不把它拼进 system prompt —— 自我认知里的哲学化内容
         ("存在哲学/认知构建") 会干扰客观学术问答, 属于出戏风险区。
+      · agent_explore — **只在 chat 侧消费** (A 元素)。与 self 同理带上,
+        由 compose_messages_node 决定是否拼进 system prompt。
+        为什么 chat 侧要注入: 称呼约定("XX好, 主人")、互动仪式、边界忌讳
+        已从 memory 迁出, 若 chat 侧不读 A, Crystal 在日常对话里就会
+        忘记自己该怎么称呼他 —— 那是人格连续性的基础, 不是外呼专属信息。
 
     注: 当前不做长度截断, MEMORY_MAX_CHARS 保留为占位 (后续方案处理)。
     """
     return {
         "agent_memory": _get_agent_memory(),
         "agent_self": _get_agent_self(),
+        "agent_explore": _get_agent_explore(),
     }
 
 
@@ -163,6 +175,10 @@ async def load_paper_history_node(state: PaperAIState) -> dict:
 
     ChatView 场景 (pdf_fp == "crystal_chat"):
       - ask_history 作为 Chat 本地上下文 (CHAT_LOCAL_LIMIT 对)
+        走新统一入口 ai_io.load_chat_messages, 它从 crystal_chat_ai.json 取最近 N 轮
+        并在每条 content 头部嵌 "[<ts> 用户说 / Crystal主动说 / Crystal回复]" 标签。
+        → LLM 一次性看到"谁在什么时间说的", 无需另读 track。
+        → 主动/被动通过 label 区分, 与旧 entry.active 同义 (ResAsk active=True → "Crystal主动说")。
       - load_history 暂不使用 (Chat 不会 Load)
 
     Vision Ask 和 Anno 在 _load_paper_history 内部已过滤。
@@ -173,8 +189,12 @@ async def load_paper_history_node(state: PaperAIState) -> dict:
 
     if isinstance(req, AiAskReq):
         # Ask 模式 (论文 + Chat): 加载本 fp ask 历史
-        ask_limit = CHAT_LOCAL_LIMIT if is_chat else ASK_LOCAL_LIMIT
-        ask_history = _load_paper_history(fp, mode="ask", limit=ask_limit)
+        #   - Chat: 走新统一入口 (角色标签嵌入 content 头部, 主动/被动自描述)
+        #   - 论文: 走 fp 隔离的 _load_paper_history
+        if is_chat:
+            ask_history = load_chat_messages(limit=CHAT_LOCAL_LIMIT)
+        else:
+            ask_history = _load_paper_history(fp, mode="ask", limit=ASK_LOCAL_LIMIT)
         # 同时加载本 fp load 历史 (仅论文侧使用)
         if is_chat:
             load_history: list[dict] = []
@@ -212,12 +232,14 @@ async def compose_messages_node(state: PaperAIState) -> dict:
       -> 上下文按论文 fp 完全隔离
 
     Chat Ask (pdf_fp == CHAT_FP):
-      [system]  CrystalPersona + time + device + agent_mem + agent_self
+      [system]  CrystalPersona + time + device + agent_mem + agent_self + agent_explore
                 + "全局闲聊" + 论文 track 摘要块 + emotion
       [chat_msgs]  ChatView 本地近 Z=CHAT_LOCAL_LIMIT 对
       [user]    本轮提问
       -> 论文全局 track 通过 _get_track 注入 (track 仅含论文, 因为 _append_track 已过滤)
-      -> **全量注入 CUS**: chat 是 Crystal 的人格主场, memory + self 一起给。
+      -> **全量注入 ACUS**: chat 是 Crystal 的人格主场, explore + memory + self 一起给。
+         A 必须给: 称呼约定("XX好, 主人")已从 memory 迁出, 不注入则日常对话里
+         Crystal 会忘记自己该怎么称呼他。
 
     Load 模式: 人设 + 本论文 Load 历史 (LOAD_LOCAL_LIMIT 对)
     """
@@ -225,20 +247,28 @@ async def compose_messages_node(state: PaperAIState) -> dict:
     req = state["req"]
     agent_mem = state.get("agent_memory") or ""
     agent_self = state.get("agent_self") or ""
+    agent_explore = state.get("agent_explore") or ""
     time_context = get_current_time_context()
     fp = req.pdf_fp
     is_chat = (fp == CHAT_FP)
 
     if isinstance(req, AiAskReq):
+        # paper_ask_history: 论文走 fp 隔离的 _load_paper_history, chat 走新统一入口
+        # load_chat_messages (已含角色标签嵌入 content 头部)。这里不分支调用,
+        # 加载逻辑集中在 load_paper_history_node, 此处只消费结果。
         ask_history = state.get("paper_ask_history") or []
         load_history = state.get("paper_load_history") or []
 
         if is_chat:
-            # chat 侧全量注入 CUS (memory + self)。
-            # self 只在这里进 system, 论文分支刻意不传 —— 学术问答要的是客观准确,
-            # 自我认知里的哲学/期待类内容会诱导表演, 反而拉低回答质量。
+            # chat 侧全量注入 ACUS (explore + memory + self)。
+            # self / explore 只在这里进 system, 论文分支刻意不传 —— 学术问答要的是
+            # 客观准确, 自我认知与外呼约定里的哲学/期待类内容会诱导表演, 反而拉低
+            # 回答质量; 论文侧也没有"该不该主动开口"的问题。
+            # agent_explore 当前不消费 (explore.md 注入段在前一轮重构中已删除,
+            # 后续 ai_active 重写 explore 处理时再接回), 保留入参占位。
             messages = compose_chat_messages(
-                req, ask_history, agent_mem, time_context, agent_self=agent_self
+                req, ask_history, agent_mem, time_context,
+                agent_self=agent_self, agent_explore=agent_explore,
             )
         else:
             messages = compose_paper_ask_messages(

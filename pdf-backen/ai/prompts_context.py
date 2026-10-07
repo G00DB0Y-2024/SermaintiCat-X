@@ -421,13 +421,20 @@ def compose_chat_messages(
     agent_mem: str,
     time_context: str,
     agent_self: str = "",
+    agent_explore: str = "",
 ) -> list[dict]:
     """
-    ChatView 上下文 (脱离具体论文):
-      [system]  CrystalPersona + time + device + agent_mem + agent_self
-                + 全局闲聊提示 + 论文 track 摘要 + emotion
+    ChatView 上下文 (脱离具体论文), 全量注入 ACUS:
+      [system]  CrystalPersona + time + device + agent_mem(U) + agent_self(S)
+                + agent_explore(A) + 全局闲聊提示 + 论文 track 摘要 + emotion(C)
       [user/assistant × CHAT_LOCAL_LIMIT 对]  ChatView 本地历史
       [user]  本轮提问
+
+    ECUS 四元素在本函数里的落点:
+      E = agent_explore — 「约定 / 节奏规律 / 外呼记录」三段
+      C = time_context + device_context + emotion_context
+      U = agent_mem    — 关于他的认知 (不含约定, 已迁至 A)
+      S = agent_self   — Crystal 对自己的认知
 
     论文 track (ask+load) 由 _get_track 读出, 因为 _append_track 已经过滤了 chat fp,
     所以 track 里只含论文场景的记录, 正好对应 ChatView "提示 Crystal 全局而言
@@ -464,6 +471,8 @@ def compose_chat_messages(
               "它同样不代表你认同其中每一条 —— 若某条与当下的真实感受冲突, "
               "以当下的感受为准。)"
         )
+    # agent_explore (ACUS 的 A 元素) 当前未消费 —— explore.md 注入逻辑将在
+    # 后续 ai_active 重写 explore 处理时一并重建, 这里保留入参占位。
     if track_summary:
         system_content += (
             "\n\n【全局上下文感知】\n"
@@ -502,7 +511,13 @@ def build_track_summary_block() -> str:
             asst = e.get("assistant", "")
             lines.append(f"- [{ts} 用户说]\n  {user}")
             if asst:
-                lines.append(f"  [Crystal说]\n  {asst}")
+                # 关键区分: 主动开口 vs 回复。新字段是 entry.active
+                # (旧 _outbound_fp / proactive 已废弃, 只有 ai_active
+                # 落盘的追问 ResAsk 会写 active=True)。保留这个标签让
+                # LLM 能区分"我主动找他"和"他找我我应答" —— 而这两者
+                # 对他的打扰程度天差地别, 是节奏规律/分寸归纳的核心依据。
+                label = "Crystal主动说" if e.get("active") else "Crystal回复说"
+                lines.append(f"  [{label}]\n  {asst}")
 
     if load_track:
         lines.append("")
@@ -516,3 +531,4 @@ def build_track_summary_block() -> str:
                 lines.append(f"  [总结]\n  {asst}")
 
     return "\n".join(lines)
+
