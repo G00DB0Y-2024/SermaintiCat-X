@@ -225,21 +225,73 @@ def _snapshot_state_for_layer1(state: dict) -> dict:
     }
 
 
+async def _parse_json_lenient(raw: str) -> dict | None:
+    """
+    容错 JSON 解析 (LLM 输出常带尾巴)。
+
+    LLM 真实输出常见 3 种"额外数据":
+      1. ```json ... ``` markdown fence → 剥掉
+      2. JSON 之后追加解释/换行/注释 → "Extra data" json.JSONDecodeError
+      3. 多个 JSON 拼接 (LLM 重复生成) → 取第一个完整对象
+
+    策略:
+      1. 剥 ``` fence
+      2. 找到第一个 '{' 起, 配对 '}' 截取第一个完整 JSON object
+      3. 截取后仍解析失败 → return None
+    """
+    if not raw:
+        return None
+    s = raw.strip()
+    # 1. 剥 markdown fence
+    if s.startswith("```"):
+        s = s.split("```", 2)[1]
+        if s.startswith("json"):
+            s = s[4:]
+        s = s.strip().rstrip("`").strip()
+    if not s or s[0] != "{":
+        return None
+    # 2. 配对 '}' 截取第一个完整 JSON object
+    depth = 0
+    in_str = False
+    escape = False
+    for i, ch in enumerate(s):
+        if escape:
+            escape = False
+            continue
+        if ch == "\\":
+            escape = True
+            continue
+        if ch == '"':
+            in_str = not in_str
+            continue
+        if in_str:
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                s = s[: i + 1]
+                break
+    else:
+        # 整个字符串 depth 都没归零 → 没有完整对象
+        return None
+    # 3. 解析截取后的纯 JSON
+    try:
+        return json.loads(s)
+    except (json.JSONDecodeError, ValueError):
+        return None
+
+
 async def _judge_followup(ecus_system: str) -> dict | None:
     """二元裁判: 是否追问。失败/缺配置 → 跳过 (return None)。"""
     raw = await _call_lint_llm(ecus_system)
     if not raw:
         return None
     try:
-        # 兼容 LLM 返回 ```json ... ``` 包裹
-        s = raw.strip()
-        if s.startswith("```"):
-            s = s.split("```", 2)[1]
-            if s.startswith("json"):
-                s = s[4:]
-            s = s.strip().rstrip("`").strip()
-        judge = json.loads(s)
-        if "should_followup" not in judge:
+        judge = await _parse_json_lenient(raw)
+        if judge is None or "should_followup" not in judge:
+            debug(f"[ai_active] judge parse fail: missing should_followup  raw={raw[:80]!r}")
             return None
         return {
             "should_followup": bool(judge["should_followup"]),
@@ -247,7 +299,7 @@ async def _judge_followup(ecus_system: str) -> dict | None:
             "predict_window_sec": int(judge.get("predict_window_sec", 60)),
             "predict_reply_length": str(judge.get("predict_reply_length", "短")),
         }
-    except (json.JSONDecodeError, ValueError, TypeError) as e:
+    except (ValueError, TypeError) as e:
         debug(f"[ai_active] judge parse fail: {e}  raw={raw[:80]!r}")
         return None
 
@@ -258,13 +310,10 @@ async def _compose_followup(system: str, user: str) -> dict | None:
     if not raw:
         return None
     try:
-        s = raw.strip()
-        if s.startswith("```"):
-            s = s.split("```", 2)[1]
-            if s.startswith("json"):
-                s = s[4:]
-            s = s.strip().rstrip("`").strip()
-        out = json.loads(s)
+        out = await _parse_json_lenient(raw)
+        if out is None:
+            debug(f"[ai_active] compose parse fail: not valid JSON  raw={raw[:80]!r}")
+            return None
         content = str(out.get("content", "")).strip()
         if not content:
             return None
@@ -273,7 +322,7 @@ async def _compose_followup(system: str, user: str) -> dict | None:
             "predict_reply": str(out.get("predict_reply", ""))[:80],
             "predict_window_sec": int(out.get("predict_window_sec", 60)),
         }
-    except (json.JSONDecodeError, ValueError, TypeError) as e:
+    except (ValueError, TypeError) as e:
         debug(f"[ai_active] compose parse fail: {e}  raw={raw[:80]!r}")
         return None
 
@@ -465,15 +514,11 @@ Crystal 预测用户会回: {pending.predict_reply_text!r}
     if not raw:
         return None
     try:
-        s = raw.strip()
-        if s.startswith("```"):
-            s = s.split("```", 2)[1]
-            if s.startswith("json"):
-                s = s[4:]
-            s = s.strip().rstrip("`").strip()
-        out = json.loads(s)
+        out = await _parse_json_lenient(raw)
+        if out is None:
+            return None
         return bool(out.get("hit", False))
-    except (json.JSONDecodeError, ValueError, TypeError):
+    except (ValueError, TypeError):
         return None
 
 
@@ -537,13 +582,10 @@ explore.md 是关于**用户时间相关认知**的档案, 只写:
         debug("[explore] LLM no response, skip write")
         return
     try:
-        s = raw.strip()
-        if s.startswith("```"):
-            s = s.split("```", 2)[1]
-            if s.startswith("json"):
-                s = s[4:]
-            s = s.strip().rstrip("`").strip()
-        out = json.loads(s)
+        out = await _parse_json_lenient(raw)
+        if out is None:
+            debug(f"[explore] parse fail: not valid JSON  raw={raw[:80]!r}")
+            return
         new_md = str(out.get("content", "")).strip()
         if not new_md:
             return
@@ -554,7 +596,7 @@ explore.md 是关于**用户时间相关认知**的档案, 只写:
             from .ai_io import _set_agent_explore_cache
             _set_agent_explore_cache(new_md)
             debug(f"[explore] rewritten: {len(new_md)} chars")
-    except (json.JSONDecodeError, ValueError, TypeError) as e:
+    except (ValueError, TypeError) as e:
         debug(f"[explore] parse fail: {e}  raw={raw[:80]!r}")
 
 
