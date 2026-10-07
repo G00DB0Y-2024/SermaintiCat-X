@@ -18,6 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
 from ai.ai_routes import router as ai_router
+from fastapi import WebSocket, WebSocketDisconnect
 
 '''
 ******************************************
@@ -36,6 +37,21 @@ async def lifespan(app: FastAPI):
 
     # 启动时从 ai/memory/params.json.llm_configs 把 Main + Lint 两份 LLM
     # 配置读回到 ai_config._ai_config / ai_emotion.EMOTION_LLM_CONFIG。
+    # 这样:
+    #   · 后端重启 → 用户在前端设过的配置不会丢
+    #   · 电脑/手机任意一端更新过配置 → 另一端 GET /ai/config 就能看到最新
+    # 失败静默 — 读不到就用默认空值, 由前端推送兜底 (旧行为不变)。
+    try:
+        from ai.ai_config import load_ai_config_from_disk
+        from ai.ai_emotion import load_emotion_llm_config_from_disk
+        if load_ai_config_from_disk():
+            print("[lifespan] Main LLM config restored from params.json")
+        if load_emotion_llm_config_from_disk():
+            print("[lifespan] Lint LLM config restored from params.json")
+    except Exception as e:
+        print(f"[lifespan] LLM config restore skipped: {type(e).__name__}: {e}")
+
+    yield
     # 这样:
     #   · 后端重启 → 用户在前端设过的配置不会丢
     #   · 电脑/手机任意一端更新过配置 → 另一端 GET /ai/config 就能看到最新
@@ -498,6 +514,55 @@ async def handle_image(req: Dict):
     delete_dir_fp(static_dir, req['fp'])
      
                
+@app.websocket("/ws")
+async def ws_endpoint(websocket: WebSocket):
+    """
+    Layer1 WebSocket 端点 (Crystal 主动追问的推送通道)。
+
+    上行 (客户端 → 服务端):
+      {"type": "user_msg", "pdf_fp": str, "content": str, "ts_ms": float}
+      (Layer1 不需要已读回执 — deadline 是软标记)
+
+    下行 (服务端 → 客户端):
+      {"type": "push", "entry": ResAsk entry dict}            ← ai_emotion 等
+      {"type": "ResActive", "pdf_fp": str, "entry": entry}    ← ai_active 主动追问
+        (前端 ChatView 用 type 区分主动/被动; active=True 时打视觉徽章)
+
+    连接维护:
+      · FastAPI/WebSocket 原生处理重连, 前端 ws.onclose / onerror 中重连即可。
+      · 客户端 onopen 后无需发 ping, keepalive 由网络层处理。
+    """
+    from ai.ai_active import (
+        on_user_msg,
+        register_ws_client,
+        unregister_ws_client,
+    )
+
+    await websocket.accept()
+    register_ws_client(websocket)
+    debug("[ws] client connected")
+
+    try:
+        while True:
+            raw = await websocket.receive_text()
+            try:
+                msg = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+
+            msg_type = msg.get("type", "")
+            if msg_type == "user_msg":
+                on_user_msg(
+                    pdf_fp=msg.get("pdf_fp", ""),
+                    content=msg.get("content", ""),
+                    ts_ms=float(msg.get("ts_ms", 0)),
+                )
+    except WebSocketDisconnect:
+        debug("[ws] client disconnected")
+    finally:
+        unregister_ws_client(websocket)
+
+
 # if __name__ == '__main__':
 #     uvicorn.run(app='Main:app', host="127.0.0.1", port=8225, reload=True)
     

@@ -7,9 +7,24 @@ ai 子包私有工具层。
 """
 from __future__ import annotations
 
+import os
 import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# 原子文本写 (atomic text write) — 跨平台通用
+# ═══════════════════════════════════════════════════════════════════════
+# 写文本文件, 返回写入字节数。出错抛 OSError。
+#
+# 注: ai_io 内部 EXPLORE_FILE 等场景要求"不依赖 ai_agent 的 _write_text_file_atomic"
+#     (否则循环 import), 因此这里放一份独立副本。语义一致: f.tell() 在 text
+#        mode 下返回的是透明 cookie, 文本长度一致时可用来早期失败检测。
+def _write_text_file_atomic(path: str, content: str) -> int:
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
+        return f.tell()
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -61,6 +76,19 @@ def format_dt_minute(ts_ms: int) -> str:
     用于 Crystal_memory.md 时间戳 (LLM 写到笔记里)。
     """
     return _to_beijing_dt(ts_ms).strftime("%Y-%m-%d %H:%M")
+
+
+def format_weekday(ts_ms: int) -> str:
+    """
+    毫秒时间戳 → 星期几, 返回 "周一" ... "周日" (北京时间)。
+
+    供外呼结算记录使用 —— 让学习回路能归纳「他周末才回」这类规律。
+    必须用真实 weekday, 不能截日期字符串的字符 (那是"日", 不是星期)。
+    ts_ms <= 0 返回空串 (未发送 / 未知)。
+    """
+    if not ts_ms or ts_ms <= 0:
+        return ""
+    return f"周{_BEIJING_WEEKDAY_NAMES[_to_beijing_dt(ts_ms).weekday()]}"
 
 
 def format_dt_second(ts_ms: int) -> str:

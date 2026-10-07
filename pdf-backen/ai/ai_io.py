@@ -3,11 +3,14 @@
 
 集中管理:
 - Crystal_memory.md (CRYSTAL_MEMORY_FILE) 的进程内缓存
+- Crystal_self.md (CRYSTAL_SELF_FILE) 的进程内缓存
+- explore.md (EXPLORE_FILE, 主动外呼档案) 的进程内缓存 + 整份写盘
 - Crystal_track_ask/load.json 的双轨缓存 + dirty 标记 + 写盘策略
 - save/{fp}_ai.json 的读取 + mtime 缓存
-- ai/memory/params.json 的读写 (存 _ask_count_by_fp — memory update 节流计数,
-  持久化以跨进程存活; 所有访问都经 _load_ask_counts / _save_ask_counts /
-  _inc_ask_count / _get_ask_count, 不要直接摸 _ask_count_by_fp)
+- ai/memory/params.json 的读写 (存 _ask_count_by_fp / emotion_vector /
+  llm_configs, 持久化以跨进程存活; 所有访问都经
+  _load_ask_counts / _save_ask_counts / _inc_ask_count / _get_ask_count /
+  _save_params, 不要直接摸 _ask_count_by_fp)
 
 所有 cache 均为模块级单例,跨请求保持,跟原来散落在 ai_agent.py 的行为一致。
 """
@@ -24,6 +27,7 @@ from .ai_config import (
     CHAT_MEMORY_LIMIT,
     CRYSTAL_MEMORY_FILE,
     CRYSTAL_SELF_FILE,
+    EXPLORE_FILE,
     LOAD_TRACK_FILE,
     MAX_ASK_TRACK,
     MAX_LOAD_TRACK,
@@ -31,7 +35,7 @@ from .ai_config import (
     PARAMS_FILE,
     SAVE_DIR,
 )
-from .ai_utils import format_dt_second, now_ms
+from .ai_utils import _write_text_file_atomic, format_dt_second, now_ms
 from utils.log import debug
 
 
@@ -114,6 +118,62 @@ def _set_agent_self_cache(md: str) -> None:
     """后台 self-update 写完文件后调用, 同步刷新缓存。"""
     global _agent_self_cache
     _agent_self_cache = md
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# explore.md (主动外呼档案) — 缓存 + 读写
+# ═══════════════════════════════════════════════════════════════════════
+#
+# 与 memory / self 的区别:
+#   - memory (U): 关于「他」的认知, 注入 chat system。
+#   - self   (S): Crystal 的自我认知, 注入 chat system。
+#   - explore:   关于「主动开口」的档案, 注入 chat system。
+#     LLM 拿到 explore.md 全文自由重写, 无段落约束 (无固定章节)。
+#     prompt 仅约束"只写时间相关认知" (活跃时段 / 沉默含义 / 回应速度)。
+#
+# 读: _get_agent_explore()  (全文)
+# 写: _write_agent_explore() (整份覆盖, 内部无段级操作)
+
+_explore_cache: str | None = None
+
+
+def _get_agent_explore() -> str:
+    """读 explore.md 缓存 (首次才打磁盘)。缺失时返回空串, 由调用方决定是否回退。"""
+    global _explore_cache
+    if _explore_cache is None:
+        _ensure_memory_dir()
+        if os.path.exists(EXPLORE_FILE):
+            try:
+                with open(EXPLORE_FILE, "r", encoding="utf-8") as f:
+                    _explore_cache = f.read()
+            except OSError:
+                _explore_cache = ""
+        else:
+            _explore_cache = ""
+    return _explore_cache
+
+
+def _set_agent_explore_cache(md: str) -> None:
+    """explore 写盘后同步刷新缓存, 避免下一个请求读到陈旧数据。"""
+    global _explore_cache
+    _explore_cache = md
+
+
+def _write_agent_explore(md: str) -> bool:
+    """
+    整份覆盖 explore.md 并刷新缓存。
+
+    与 memory 的写入一样走 atomic 写 (临时文件 + os.replace), 避免后台
+    协程写盘时正好被一次读命中半截内容。
+
+    注意: _write_text_file_atomic 返回的是**字符数** (不是字节数), 因为
+    文本模式下 f.tell() 返回的是不透明的 cookie, 不能拿来比长度。
+    """
+
+    ok = _write_text_file_atomic(EXPLORE_FILE, md) == len(md)
+    if ok:
+        _set_agent_explore_cache(md)
+    return ok
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -420,6 +480,7 @@ def _save_emotion(emotion: dict) -> None:
     _save_params({"emotion_vector": _emotion_cache})
 
 
+# ═══════════════════════════════════════════════════════════════════════
 def _get_track(mode: str) -> list[dict]:
     """
     读 track 缓存 (懒加载)。
@@ -581,6 +642,104 @@ def _invalidate_history_cache(path: str) -> None:
         _paper_history_cache.pop(k, None)
 
 
+# ───────────────────────────────────────────────────────────────────────
+# 历史加载共用原语 (Layer1 重构, 单一事实源)
+# ───────────────────────────────────────────────────────────────────────
+
+# entry.type → role 映射 (ReqLoad/ResLoad/ReqAsk/ResAsk 4 类)
+_TYPE_TO_ROLE: dict[str, str] = {
+    "ReqLoad": "user",
+    "ResLoad": "assistant",
+    "ReqAsk":  "user",
+    "ResAsk":  "assistant",
+}
+
+# assistant 角色的 label 派生 (按 chat item.active 字段)
+_LABEL_FOR_ASSISTANT: dict[bool, str] = {
+    True:  "Crystal主动说",   # entry.active=True
+    False: "Crystal回复",     # entry.active=False (默认)
+}
+
+
+def _resolve_label(role: str, entry: dict) -> str:
+    """user -> "用户说"; assistant -> 按 entry.active 决定 "Crystal主动说" / "Crystal回复"."""
+    if role == "user":
+        return "用户说"
+    return _LABEL_FOR_ASSISTANT[bool(entry.get("active", False))]
+
+
+def _filter_entries(data: list[dict], targets: set[str]) -> list[dict]:
+    """
+    统一过滤规则 (供 _load_paper_history / _load_chat_history_for_memory / load_chat_messages 共用):
+      1. 非 dict 直接丢
+      2. Anno entry: 完全屏蔽
+      3. Vision Ask (ReqAsk + img 非空): 屏蔽 (这条 user + 紧随其后的 assistant 都不要)
+      4. type 不在 targets: 跳过
+    返回过滤后的 entry 列表 (原序, 不倒序).
+    """
+    out: list[dict] = []
+    skip_next_res = False
+    for e in data:
+        if not isinstance(e, dict):
+            continue
+        t = e.get("type", "")
+        if t == "Anno":
+            continue
+        if t == "ReqAsk" and e.get("img"):
+            skip_next_res = True
+            continue
+        if skip_next_res and t == "ResAsk":
+            skip_next_res = False
+            continue
+        if t in targets:
+            out.append(e)
+    return out
+
+
+def load_chat_messages(limit: int = CHAT_MEMORY_LIMIT) -> list[dict]:
+    """
+    通用入口. OpenAI chat.completions 严格 messages:
+      [{role: "user"|"assistant", content: "[<ts_str> <label>] <content正文>"}]
+
+    label:
+      "用户说"         (role=user)
+      "Crystal主动说"  (role=assistant + entry.active=True)
+      "Crystal回复"    (role=assistant + entry.active=False)
+
+    死字段全去: ts / msg_fp / quotes
+    只剩 role + content (active 通过 label 体现在 content 头部).
+
+    来源: save/crystal_chat_ai.json (CHAT_FP), 取最近 limit 轮 (limit*2 条 entry).
+
+    异常/边界:
+      - 文件不存在 / 解析失败 -> _read_json_safe 返回 default=[], 函数返回 []
+      - data 不是 list (异常结构) -> []
+      - dt 字段缺失 -> 退化为 "[<label>] <body>"
+      - content 为空字符串 -> 仍发送 (label 仍有意义)
+    """
+    data = _read_json_safe(_paper_history_path(CHAT_FP), [])
+    filtered = _filter_entries(data, {"ReqAsk", "ResAsk"})
+    tail = filtered[-(limit * 2):]
+
+    out: list[dict] = []
+    for e in tail:
+        role = _TYPE_TO_ROLE[e["type"]]
+        label = _resolve_label(role, e)
+        ts_str = e.get("dt", "")[:16]    # "MM-DD HH:MM" 或完整 dt 取前 16
+        body = e.get("content") or ""
+        if ts_str:
+            out.append({
+                "role": role,
+                "content": f"[{ts_str} {label}] {body}",
+            })
+        else:
+            out.append({
+                "role": role,
+                "content": f"[{label}] {body}",
+            })
+    return out
+
+
 def _load_paper_history(fp: str, mode: str, limit: int) -> list[dict]:
     """
     读 save/{fp}_ai.json, 按 mode 取对应 entry, 返回 OpenAI 格式 messages。
@@ -590,67 +749,44 @@ def _load_paper_history(fp: str, mode: str, limit: int) -> list[dict]:
       mode:  "load" → ReqLoad/ResLoad; "ask" → ReqAsk/ResAsk
       limit: 最大轮次 (每轮 2 条)
 
-    返回: [{role: "user"|"assistant", content: str, ts, msg_fp, quotes}, ...] 正序
+    返回: [{role, content, ts, msg_fp, quotes}, ...] 正序
 
-    过滤规则:
+    过滤规则 (与 _filter_entries 共用):
       1. Anno entry: 完全屏蔽, 不参与任何加载
       2. Vision Ask (img 非空): 屏蔽, 不进入上下文也不进入 track
          (Vision Ask 正常写盘，但不参与加载)
     """
     if limit <= 0:
         return []
-    path = _paper_history_path(fp)
-    data = _read_json_safe(path, [])
+    data = _read_json_safe(_paper_history_path(fp), [])
     if not isinstance(data, list):
         return []
 
-    type_map = {
-        "ReqLoad": "user",
-        "ResLoad": "assistant",
-        "ReqAsk":  "user",
-        "ResAsk":  "assistant",
-    }
     if mode == "load":
         targets = {"ReqLoad", "ResLoad"}
     else:
         targets = {"ReqAsk", "ResAsk"}
 
-    filtered = []
-    skip_next_res = False  # 标记跳过同 ts 的 ResAsk
-    for e in data:
-        if not isinstance(e, dict):
-            continue
-        t = e.get("type", "")
-
-        # 规则 1: Anno 屏蔽
-        if t == "Anno":
-            continue
-
-        # 规则 2: Vision Ask 屏蔽 (img 非空 = 带图片)
-        if t == "ReqAsk" and e.get("img"):
-            skip_next_res = True
-            continue
-        if skip_next_res and t == "ResAsk":
-            skip_next_res = False
-            continue
-
-        if t not in targets:
-            continue
-        ts_val = e.get("ts")
-        role = type_map[t]
-        content = e.get("content")
-        if isinstance(content, str):
-            filtered.append({
-                "role": role,
-                "content": content,            # 原样进 LLM, 不加 [ts label] 前缀
-                "ts": ts_val,                   # 保留 ts 用于后续去重
-                "msg_fp": e.get("msg_fp", ""),  # 透传消息指纹
-                "quotes": e.get("quotes", []),  # 透传引用指纹数组
-            })
-
-    # 取最后 limit*2 条（最近 limit 轮），已正序
+    filtered = _filter_entries(data, targets)
     tail = filtered[-(limit * 2):]
-    return tail
+
+    out: list[dict] = []
+    for e in tail:
+        role = _TYPE_TO_ROLE[e["type"]]
+        content = e.get("content")
+        if not isinstance(content, str):
+            continue
+        out.append({
+            "role": role,
+            "content": content,            # 原样进 LLM, 不加 [ts label] 前缀
+            "ts": e.get("ts"),             # 保留 ts 用于后续去重
+            "msg_fp": e.get("msg_fp", ""), # 透传消息指纹
+            "quotes": e.get("quotes", []), # 透传引用指纹数组
+            # 主动标记 (新语义): entry.active=True ⇒ Crystal主动说
+            "active": bool(e.get("active", False)) if e["type"] == "ResAsk" else False,
+        })
+    # 取最后 limit*2 条（最近 limit 轮），已正序
+    return out
 
 
 def _load_chat_history_for_memory() -> tuple[list[dict], list[dict]]:
@@ -664,7 +800,8 @@ def _load_chat_history_for_memory() -> tuple[list[dict], list[dict]]:
     返回: (ask_track, load_track); chat 没有 load, 第二项永远为 []。
 
     实现细节:
-      - 按 ts 配对 (相邻的 ReqAsk 与 ResAsk 视为一对, ts 连续递增)。
+      - 调用 _filter_entries 复用统一过滤规则 (Anno / Vision Ask 屏蔽)
+      - 然后按相邻 ReqAsk + ResAsk 配对, 取最后 CHAT_MEMORY_LIMIT 对
       - 时区/dt 沿用 save_paper_memory_node 写盘时的 dt 字段 (前端也消费同一个字段)。
       - content 截断到 200 字符, 保持与论文 track 同样的尺寸约定。
     """
@@ -673,17 +810,14 @@ def _load_chat_history_for_memory() -> tuple[list[dict], list[dict]]:
     if not isinstance(data, list) or not data:
         return [], []
 
+    # 复用 _filter_entries 做 Anno / Vision Ask 屏蔽, 但 targets 是 (ReqAsk, ResAsk)
+    filtered = _filter_entries(data, {"ReqAsk", "ResAsk"})
+
     # 把 entry 流配成 user/assistant 对, 取最后 CHAT_MEMORY_LIMIT 对
     pairs: list[tuple[dict, dict]] = []
     pending_user: dict | None = None
-    for e in data:
-        if not isinstance(e, dict):
-            continue
+    for e in filtered:
         t = e.get("type", "")
-        # 与论文侧 _load_paper_history 一致: vision Ask (img 非空) 跳过
-        if t == "ReqAsk" and e.get("img"):
-            pending_user = None  # 作废相邻未匹配的 user
-            continue
         if t == "ResAsk" and pending_user is not None:
             pairs.append((pending_user, e))
             pending_user = None
@@ -700,5 +834,69 @@ def _load_chat_history_for_memory() -> tuple[list[dict], list[dict]]:
             "pdf_fp": CHAT_FP,
             "user": (u.get("content") or "")[:200],
             "assistant": (a.get("content") or "")[:200],
+            # active: 这条 assistant 是不是 Crystal 主动发的 (而非回复)。
+            "active": bool(a.get("active", False)),
         })
     return ask_track, []
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# 主动追问落盘 (ai_active 唯一对外入口)
+# ═══════════════════════════════════════════════════════════════════════
+#
+# Layer1 完成后, ai_active 把生成的追问 ResAsk 经此函数落盘到
+# save/crystal_chat_ai.json。关键: 必须带 active=True, 否则下游
+# (track 归纳 / prompts_context / ai_emotion) 无法区分"我主动找
+# 他"和"他找我我应答"。
+
+def _append_active_resask(
+    content: str,
+    *,
+    msg_fp: str,
+    ts_ms: int,
+    intent: str = "",
+) -> bool:
+    """
+    追加一条主动追问 ResAsk 到 crystal_chat_ai.json, 标记 active=True。
+
+    Args:
+        content:  追问文本 (已通过 lint, 非空)
+        msg_fp:   短指纹, 前端 `/msg` 接口用它去重
+        ts_ms:    发送时间 (epoch ms, 北京时区)
+        intent:   触发意图 (例 "他两天没上线", 写进 entry 用于回溯)
+
+    Returns:
+        bool — 落盘是否成功
+    """
+    entry: dict = {
+        "type": "ResAsk",
+        "content": content,
+        "ts": ts_ms,
+        "dt": format_dt_second(ts_ms),
+        "msg_fp": msg_fp,
+        "active": True,        # 核心字段: 标识这条是 Crystal 主动发起
+        "intent": intent,      # 调试/回溯用, 不进 LLM prompt
+    }
+
+    path = _paper_history_path(CHAT_FP)
+    _ensure_memory_dir()
+    # 读现有列表 (绕过 mtime cache, 因为写入要立刻看到自己刚加的)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, list):
+            data = []
+    except (OSError, json.JSONDecodeError):
+        data = []
+
+    data.append(entry)
+    try:
+        ok = _write_text_file_atomic(path, json.dumps(data, ensure_ascii=False, indent=2)) > 0
+    except (OSError, TypeError, ValueError) as e:
+        debug(f"[active_resask] write FAIL: {e}")
+        return False
+
+    # 清缓存, 让下一次 _load_paper_history / _load_chat_history_for_memory 读到新条目
+    _paper_history_cache.pop((path, os.path.getmtime(path)) if os.path.exists(path) else (path, 0), None)
+    debug(f"[active_resask] APPEND ok: fp={msg_fp} intent={intent[:40]}")
+    return ok

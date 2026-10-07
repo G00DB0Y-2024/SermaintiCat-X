@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from langgraph.graph import END, StateGraph
 
+from .ai_active import layer1_node
 from .ai_agent import (
     PaperAIState,
     compose_messages_node,
@@ -36,10 +37,17 @@ def build_graph():
     构建 LangGraph StateGraph:
       load_agent_memory -> load_paper_history -> compose_messages
       -> llm_call -> save_paper_memory
-      -> update_agent_memory -> emotion_llm -> flush_track
+      -> update_agent_memory -> emotion_llm -> active_layer1 -> flush_track
 
     emotion_llm: Lint LLM 异步评估情绪, 每次 chat ask 都触发,
     非 chat 场景 (论文) 跳过。与主链路完全并行, 不阻塞响应。
+
+    active_layer1: Layer1 短期追问 (ai_active.layer1_node)。
+    挂载在 emotion_llm 之后, flush_track 之前。
+    仅 chat 场景 (pdf_fp == CHAT_FP) 真正启动后台 pipeline; 论文侧
+    layer1_node 内部直接 return {} (无副作用)。
+    fire-and-forget: layer1_node 内部用 asyncio.create_task 启动后台
+    pipeline, 自己立即 return; 主回复不阻塞。
     """
     g = StateGraph(PaperAIState)
     g.add_node("load_agent_memory",    load_agent_memory_node)
@@ -49,6 +57,7 @@ def build_graph():
     g.add_node("save_paper_memory",     save_paper_memory_node)
     g.add_node("update_agent_memory",    update_agent_memory_node)
     g.add_node("emotion_llm",           emotion_llm_node)
+    g.add_node("active_layer1",          layer1_node)
     g.add_node("flush_track",           flush_track_node)
 
     g.set_entry_point("load_agent_memory")
@@ -58,7 +67,8 @@ def build_graph():
     g.add_edge("llm_call",            "save_paper_memory")
     g.add_edge("save_paper_memory",    "update_agent_memory")
     g.add_edge("update_agent_memory",  "emotion_llm")
-    g.add_edge("emotion_llm",          "flush_track")
+    g.add_edge("emotion_llm",          "active_layer1")
+    g.add_edge("active_layer1",        "flush_track")
     g.add_edge("flush_track",          END)
 
     return g.compile()

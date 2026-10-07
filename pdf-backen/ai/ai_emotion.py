@@ -351,21 +351,43 @@ def _build_conversation_context(state: dict) -> str:
     """
     从 state 构建对话上下文摘要字符串。
 
-    取 paper_ask_history / paper_history 最近 5 轮,
-    拼成 user ↔ assistant 交替的格式。
+    ── 这里原先有两个叠在一起的 bug, 情绪 LLM 实际几乎没看到用户说话 ──
+
+    1) 键名错: 读的是 `ask_entry.get("ask")`, 而 `_load_paper_history` 返回的
+       键是 `content` (role/content/ts/msg_fp/quotes)。`get("ask")` 恒为 None,
+       于是**每一轮 User 侧都是空字符串** —— 情绪 LLM 收到的是
+       "User: \nCrystal: 他说了什么", 只看得到我自己的输出。
+
+    2) 配对错: `load_paper_history_node` 里 `paper_history` 与
+       `paper_ask_history` 是**同一个 list 对象** (后者是前者的兼容别名),
+       原代码却当成两条独立的历史分别取 `ask_hist[-(i+1)]` 和
+       `res_hist[-(i+1)]` —— 于是两项取到同一条消息, 同一段内容被打印 5 遍,
+       而且最近 5 轮退化成"最后 1 条消息重复 5 次"。
+
+    修法: 只用一份 history, 按 `role` 字段切分, 而不是靠下标猜哪半边是
+    user。role 是 `_load_paper_history` 显式写死的 (ReqAsk→user /
+    ResAsk→assistant), 比位置可靠 —— 尤其因为主动外呼的 ResAsk **没有
+    配对的 ReqAsk**, 按下标配对必然错位。
+
+    顺带标出主动发言: 情绪评估需要知道「我主动说的话」和「回复他的话」
+    性质不同 (前者是打扰, 后者是被召唤), 否则 LLM 会把两者混为一谈。
     """
-    ask_hist: list = state.get("paper_ask_history", [])
-    res_hist: list = state.get("paper_history", [])
-    lines = []
-    # 最近 5 轮, 奇数步取 ask, 偶数步取对应 response
-    n = min(5, len(ask_hist))
-    for i in range(n):
-        ask_entry = ask_hist[-(i + 1)]
-        res_entry = res_hist[-(i + 1)] if -(i + 1) >= -len(res_hist) else None
-        ask_text = (ask_entry.get("ask") or "")[:300]
-        res_text = (res_entry.get("content") or "")[:300] if res_entry else "(无回复)"
-        lines.append(f"User: {ask_text}\nCrystal: {res_text}")
-    lines.reverse()
+    hist: list = state.get("paper_ask_history") or state.get("paper_history") or []
+    if not hist:
+        return "(无对话历史)"
+
+    # 按 role 取最后 5 条 user + 5 条 assistant, 保时间正序
+    users = [m for m in hist if m.get("role") == "user"][-5:]
+    assts = [m for m in hist if m.get("role") == "assistant"][-5:]
+
+    lines: list[str] = []
+    for u in users:
+        lines.append(f"User: {(u.get('content') or '')[:300] or '(空)'}")
+    for a in assts:
+        # 主动 vs 回复必须区分 —— 见 docstring
+        # 新语义: 读 entry.active 字段 (旧命名字段已物理清理)
+        tag = "Crystal(主动开口)" if a.get("active") else "Crystal(回复)"
+        lines.append(f"{tag}: {(a.get('content') or '')[:300] or '(空)'}")
     return "\n\n".join(lines) if lines else "(无对话历史)"
 
 
@@ -450,12 +472,19 @@ async def _call_emotion_llm(
 
 async def emotion_llm_node(state: dict) -> dict:
     """
-    LangGraph 节点: Lint LLM 异步评估情绪。
+    LangGraph 节点 (fire-and-forget 调度器, 与 ai_active.layer1_node 同款):
 
-    触发: 每次 chat ask (pdf_fp == crystal_chat) 都会调用。
-    非 chat 场景 (论文) 跳过 — 论文侧节奏快, 情绪不在这类场景更新。
+      · 立即 return {}, 不 await 实际 LLM 调用
+      · 实际活交给 _run_emotion_pipeline, 用 asyncio.create_task 调度到后台
+      · 主回复 (state["final_answer"]) 不再被 emotion LLM 阻塞
 
-    不阻塞主链路: 本节点在 save_paper_memory 之后, 与 flush_track 并行。
+    调度契约 (与 layer1_node 一致):
+      · 论文侧 / Lint LLM 未配置 / 非 AiAskReq → 立即 return {} (不起 task)
+      · 复制 state 真正用到的字段到 snapshot, 避免后台 task 持有 state 引用
+        读到 LangGraph 后续节点 (active_layer1 / flush_track) 的修改
+      · 唯一可观察副作用: apply_emotion_delta 写 EMOTION_VECTOR 单例 + params.json,
+        这两个是模块级, 不依赖 state, 安全
+      · 后端进程被杀 → 后台 task 中断, emotion 此次未更新 (acceptable, 同 layer1)
     """
     req = state.get("req")
     if not isinstance(req, AiAskReq):
@@ -468,19 +497,52 @@ async def emotion_llm_node(state: dict) -> dict:
         debug("[emotion_llm] SKIP — Lint LLM not configured (api_key or model empty)")
         return {}
 
-    context       = _build_conversation_context(state)
-    self_cogn     = _load_self_cognition()
-    cur_emo       = _load_emotion()
+    snapshot = _snapshot_state_for_emotion(state)
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(_run_emotion_pipeline(snapshot))
+    except RuntimeError:
+        # 无 event loop (理论上不会, 但兜底)
+        debug("[emotion_llm] no running event loop, skip")
+    return {}
 
-    delta = await _call_emotion_llm(context, self_cogn, cur_emo)
-    if delta is None:
-        debug("[emotion_llm] no delta (LLM returned None)")
-        return {}
 
-    # no_change (全 0) 也走 apply_emotion_delta, 让 last_update_dt 刷新
-    new_emo = apply_emotion_delta(delta)
-    debug(f"[emotion_llm] applied: delta={delta} new={new_emo}")
-    return {"emotion": new_emo}
+def _snapshot_state_for_emotion(state: dict) -> dict:
+    """
+    复制 emotion 真正用到的 state 字段, 避免后台 task 持有 state 引用读到
+    LangGraph 后续节点改写后的 state (active_layer1 / flush_track 都可能
+    改 messages / paper_ask_history)。
+
+    _build_conversation_context 读: paper_ask_history (or paper_history) —
+    复一份列表即可, 字符串内容是只读不变。
+    """
+    return {
+        "req": state.get("req"),
+        "paper_ask_history": list(state.get("paper_ask_history") or state.get("paper_history") or []),
+    }
+
+
+async def _run_emotion_pipeline(snapshot: dict) -> None:
+    """
+    真正的情绪评估流程。**异步** 在 emotion_llm_node 同步返回之后跑。
+
+    异常一律静默吞掉 (不影响主回复), debug 打印。
+    """
+    try:
+        context = _build_conversation_context(snapshot)
+        self_cogn = _load_self_cognition()
+        cur_emo = _load_emotion()
+
+        delta = await _call_emotion_llm(context, self_cogn, cur_emo)
+        if delta is None:
+            debug("[emotion_llm] no delta (LLM returned None)")
+            return
+
+        # no_change (全 0) 也走 apply_emotion_delta, 让 last_update_dt 刷新
+        new_emo = apply_emotion_delta(delta)
+        debug(f"[emotion_llm] applied: delta={delta} new={new_emo}")
+    except Exception as e:
+        debug(f"[emotion_llm] pipeline error (swallowed): {type(e).__name__}: {e}")
 
 
 # ═══════════════════════════════════════════════════════════════════════

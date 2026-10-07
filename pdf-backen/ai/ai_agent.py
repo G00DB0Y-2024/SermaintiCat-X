@@ -101,7 +101,7 @@ class PaperAIState(TypedDict):
                          仅 chat 侧 (pdf_fp == CHAT_FP) 消费并注入 system prompt;
                          论文侧 (SYSTEM_LOAD / SYSTEM_ASK 论文分支) 刻意不注入,
                          避免哲学化内容干扰客观学术问答。
-    agent_explore:       从 explore.md 加载的 Markdown 全文 (ACUS 的 A 元素)。
+    agent_explore:       从 explore.md 加载的 Markdown 全文 (主动外呼档案)。
                          仅 chat 侧消费并注入 system prompt —— 称呼约定/互动仪式/
                          边界忌讳已从 memory 迁出, chat 侧不读 A 就会忘记怎么称呼他。
     paper_history:       兼容字段, 论文侧即为 paper_ask_history
@@ -237,9 +237,9 @@ async def compose_messages_node(state: PaperAIState) -> dict:
       [chat_msgs]  ChatView 本地近 Z=CHAT_LOCAL_LIMIT 对
       [user]    本轮提问
       -> 论文全局 track 通过 _get_track 注入 (track 仅含论文, 因为 _append_track 已过滤)
-      -> **全量注入 ACUS**: chat 是 Crystal 的人格主场, explore + memory + self 一起给。
-         A 必须给: 称呼约定("XX好, 主人")已从 memory 迁出, 不注入则日常对话里
-         Crystal 会忘记自己该怎么称呼他。
+      -> **全量注入 (explore + memory + self)**: chat 是 Crystal 的人格主场,
+         三份档案一起给。explore 必须给: 称呼约定("XX好, 主人")已从 memory
+         迁出, 不注入则日常对话里 Crystal 会忘记自己该怎么称呼他。
 
     Load 模式: 人设 + 本论文 Load 历史 (LOAD_LOCAL_LIMIT 对)
     """
@@ -260,7 +260,7 @@ async def compose_messages_node(state: PaperAIState) -> dict:
         load_history = state.get("paper_load_history") or []
 
         if is_chat:
-            # chat 侧全量注入 ACUS (explore + memory + self)。
+            # chat 侧全量注入 explore + memory + self。
             # self / explore 只在这里进 system, 论文分支刻意不传 —— 学术问答要的是
             # 客观准确, 自我认知与外呼约定里的哲学/期待类内容会诱导表演, 反而拉低
             # 回答质量; 论文侧也没有"该不该主动开口"的问题。

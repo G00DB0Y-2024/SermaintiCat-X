@@ -424,7 +424,7 @@ def compose_chat_messages(
     agent_explore: str = "",
 ) -> list[dict]:
     """
-    ChatView 上下文 (脱离具体论文), 全量注入 ACUS:
+    ChatView 上下文 (脱离具体论文), 全量注入三份档案 + emotion:
       [system]  CrystalPersona + time + device + agent_mem(U) + agent_self(S)
                 + agent_explore(A) + 全局闲聊提示 + 论文 track 摘要 + emotion(C)
       [user/assistant × CHAT_LOCAL_LIMIT 对]  ChatView 本地历史
@@ -471,7 +471,7 @@ def compose_chat_messages(
               "它同样不代表你认同其中每一条 —— 若某条与当下的真实感受冲突, "
               "以当下的感受为准。)"
         )
-    # agent_explore (ACUS 的 A 元素) 当前未消费 —— explore.md 注入逻辑将在
+    # agent_explore 当前未消费 —— explore.md 注入逻辑将在
     # 后续 ai_active 重写 explore 处理时一并重建, 这里保留入参占位。
     if track_summary:
         system_content += (
@@ -512,7 +512,7 @@ def build_track_summary_block() -> str:
             lines.append(f"- [{ts} 用户说]\n  {user}")
             if asst:
                 # 关键区分: 主动开口 vs 回复。新字段是 entry.active
-                # (旧 _outbound_fp / proactive 已废弃, 只有 ai_active
+                # (旧命名字段已物理清理, 只有 ai_active
                 # 落盘的追问 ResAsk 会写 active=True)。保留这个标签让
                 # LLM 能区分"我主动找他"和"他找我我应答" —— 而这两者
                 # 对他的打扰程度天差地别, 是节奏规律/分寸归纳的核心依据。
