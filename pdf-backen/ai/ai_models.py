@@ -127,6 +127,13 @@ class AiResp(BaseModel):
         description="当前情绪向量 {valence, arousal, novelty, clarity, last_update_dt}。"
                     "HomeView 拉取 /ai/emotion 端点或从 ask 响应中获取此字段。",
     )
+    split_followup: Optional[dict] = Field(
+        default=None,
+        description="【v2 改造】MR 末尾拆出的隐含追问, 仅 chat 侧。\n"
+                    "None = 未拆出 (MR 无追问 / lint 失败 / 论文侧)。\n"
+                    "dict = {content, predict_reply, predict_window_sec, intent, from_split=True},\n"
+                    "       含义是追问已落盘 + WS push, 前端无需自己再处理。",
+    )
 
 
 # ── 新 Schema Entry 类型 ──────────────────────────────────────────────

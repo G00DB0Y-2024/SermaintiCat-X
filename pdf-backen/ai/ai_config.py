@@ -174,7 +174,11 @@ CHAT_LOCAL_LIMIT:  Final[int] = 20
 
 CHAT_MEMORY_LIMIT: Final[int] = 10
 
-MAX_ASK_TRACK:     Final[int] = 5
+MAX_ASK_TRACK:     Final[int] = 15   # 【v3 全局化】5 → 15。
+                            # 论文 + chat 都进同一 track 后, chat 高频会迅速填满旧 5 条窗口,
+                            # 导致论文对话被冲掉。15 条 ≈ 可覆盖近期 ~5 轮论文 + ~5 轮 chat
+                            # (CHAT_LOCAL_LIMIT=10 同类轮询中, 真正活跃的多是 chat 侧),
+                            # 仍保留 FIFO 裁剪防无限膨胀。LOAD 仍仅论文, MAX_LOAD_TRACK 不变。
 
 MAX_LOAD_TRACK:    Final[int] = 3
 

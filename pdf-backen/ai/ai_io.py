@@ -529,14 +529,11 @@ def _append_track(mode: str, entry: dict) -> None:
     注意: 只改内存 cache + 标 dirty, 不立即写盘!
     写盘由 flush_track_node 在对话结束后统一执行。
 
-    过滤规则: Crystal 全局 track 仅追踪论文场景。
-    当 entry.pdf_fp == CHAT_FP ("crystal_chat") 时, 表示这是 ChatView 的对话,
-    不写入论文 track (避免污染 ChatView 自身的上下文)。
+    【v3 全局化】不再按 pdf_fp 过滤: 论文 fp 与 chat fp 都进入同一 ask track,
+    让 build_track_summary_block 能从整体对话流 (论文 + 闲聊) 摘录近期对话感知。
+    LOAD track 仍仅论文 (chat 不存在论文选段行为)。
     """
     global _ask_dirty, _load_dirty
-    if entry.get("pdf_fp") == CHAT_FP:
-        debug(f"[crystal_track] SKIP (chat fp): mode={mode}")
-        return
     track = list(_get_track(mode))  # 复制
     max_size = MAX_ASK_TRACK if mode == "ask" else MAX_LOAD_TRACK
     track.append(entry)
@@ -656,8 +653,8 @@ _TYPE_TO_ROLE: dict[str, str] = {
 
 # assistant 角色的 label 派生 (按 chat item.active 字段)
 _LABEL_FOR_ASSISTANT: dict[bool, str] = {
-    True:  "Crystal主动说",   # entry.active=True
-    False: "Crystal回复",     # entry.active=False (默认)
+    True:  "Crystal主动说",     # entry.active=True
+    False: "Crystal回复说",     # entry.active=False (默认)
 }
 
 

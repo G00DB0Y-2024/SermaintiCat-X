@@ -4,6 +4,20 @@ ai_active.py — Crystal 主动发言机制 (本期只实现 Layer1 短期追问
 挂载位置 (LangGraph):
   emotion_llm -> active_layer1 -> flush_track
 
+【重要约束】所有主动功能 (Layer1 / 未来的 Layer2 / Layer3) **只服务于 chat**
+(pdf_fp == CHAT_FP = "crystal_chat")。论文侧不触发任何主动逻辑。
+
+  · 论文节奏快, 学术问答无"主动关心"语义
+  · chat 节奏慢 (数小时级), Crystal 主动追问才有"陪伴感"价值
+  · 这是产品决策, 不是技术限制 — 未来若要做论文侧主动, 需另开层
+
+实现此约束:
+  · layer1_node / _run_layer1_pipeline 入口都检 `pdf_fp != CHAT_FP → return`
+  · on_user_msg (WS 上行) 入口同样 guard
+  · 未来加 layer2 / layer3 节点 → 必须先调 _assert_chat_fp(pdf_fp) 显式拒论文
+  · 主动行为产生的一切落盘 (active_resask / plans.json / explore.md update)
+    都通过 _assert_chat_fp 二次校验, 防漏 guard
+
 设计核心 (来自 plan §0):
   · E = explore.md 全文 (LLM 自由管理, 无段落约束)
   · C = chat_local_limit 内近期对话窗口 (load_chat_messages 返回 OpenAI messages,
@@ -30,6 +44,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import random
 import threading
 import time
 from dataclasses import dataclass, field
@@ -176,7 +191,7 @@ def _build_layer1_system(req: AiAskReq, mr_text: str) -> str:
 {{
   "should_followup": true|false,
   "reason": "简述, ≤30 字",
-  "predict_window_sec": 60,      // 软预测: 用户大概多久会回 (秒), 30~600
+  "predict_window_sec": int,      // 软预测: 用户大概多久会回 (秒), 30~600
   "predict_reply_length": "短"|"中"|"长"
 }}
 """
@@ -205,8 +220,220 @@ Lint 裁判理由: {judge.get("reason", "")}
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# Split 节点 — MR 末尾隐含追问拆解 (v2 改造)
+# ═══════════════════════════════════════════════════════════════════════
+def _build_split_prompt(mr_text: str) -> str:
+    """
+    Split lint prompt: 带有高门槛拦截的语义解耦，将其重构为「main_body」+ 「content」。
+    
+    【V5 核心升级】
+    大幅收紧 should_split 的触发条件。明确界定：纯提问、过短的句子、修辞问句、客套话，均不可拆分。
+    只有当 MR 存在明显的“长篇幅铺垫/分享” + “独立的追问空间”时，才进行解耦。
+    """
+    return f"""# 任务
+你是 Crystal 的对话节奏与语义分析专家。真实人类聊天时，有时会先发一段「情绪/事实分享」，紧接着再发一条短消息进行「提问/互动」。
+请分析以下 Crystal 准备发送的消息（MR），判断是否**值得**进行拆分。
+如果符合拆分门槛，请对其进行**语义解耦与重构**。
+
+# 【触发门槛：什么时候绝对不要拆 (should_split=false)？】
+如果出现以下任何一种情况，必须保持原文，不作拆分：
+1. **全句即问题**：整个 MR 本质上就是一句直接的提问（如“你今晚打算吃什么？”、“那你周末有啥安排？”），没有明显的前置铺垫。若强拆会导致 `main_body` 变成无意义的废话。
+2. **篇幅过短且紧密**：原 MR 是短平快的一句话（例如“这个想法挺棒的，你觉得呢？”、“辛苦啦，早点休息好吗？”），拆成两条反而显得卡顿、像机器人。
+3. **自问自答 / 修辞问句**：例如“你知道为什么吗？其实是因为……”、“谁说不是呢？”，这类问句并非期待用户回答，不可拆。
+4. **纯陈述 / 客套道别**：只是单纯的情绪分享、早晚安祝福，没有任何实质性抛给用户的互动话题。
+
+# 【语义解耦与重构原则（仅在 should_split=true 时严格遵守）】
+1. **语义提纯，分类装载**：
+   - `main_body` 只保留：情绪分享、事实陈述。收口必须自然（陈述句/感叹句），不要用逗号或连接词断尾。
+   - `content` 只保留：抛出的话题、询问、行动建议。
+2. **信息绝对互斥（消灭重复）**：
+   - 两段话是连续发送的，上下文共享。如果 `main_body` 已提及某个名词，`content` 只能用代词或省略，绝对不可重复（如 Main:"新开的火锅店不错~" Content:"明天去尝尝吗？" 而不是"明天去吃火锅店吗"）。
+3. **意图同源（严禁发散跑题）**：
+   - `content` 必须且只能从原 MR 的已有互动意图里提取，**严禁捏造原文没有暗示的新问题**。
+4. **保留人设语气**：
+   - 提取重组后，必须保留 Crystal 原本的语气（温柔/俏皮/心疼等）。
+
+# 判例参考（认真学习判定标准）
+
+[判例 1：信息密度足够，包含两层独立语义 —— 拆！]
+原 MR = "我这几天加班真的是累死了，好想放松一下，你周末想去哪玩呀？"
+→ 应该 should_split=true
+  main_body="我这几天加班真的是累死了，好想放松一下~"
+  content="你周末想去哪玩呀？" 
+
+[判例 2：篇幅过短，浑然一体 —— 不拆！]
+原 MR = "这件衣服挺好看的，你觉得呢？"
+→ 应该 should_split=false (太短了，拆成两条会显得极度生硬卡顿)
+
+[判例 3：全句即问题，无实质铺垫 —— 不拆！]
+原 MR = "那你今晚打算去吃什么好吃的呀？"
+→ 应该 should_split=false (如果强拆，main_body 会无话可说)
+
+[判例 4：陈述与互动揉捏，需提纯重构 —— 拆！]
+原 MR = "要不咱们明天去吃新开的那家日料吧，听说很不错，你觉得呢？"
+→ 应该 should_split=true
+  main_body="听说新开的那家日料很不错~" (提纯事实，收口自然)
+  content="咱们明天去尝尝，你觉得怎么样？" (提纯互动，使用代词避免重复“日料”)
+
+# 本轮 MR 全文
+{mr_text}
+
+# 严格 JSON 输出 (无 markdown fence):
+{{
+  "should_split": true|false,
+  "main_body": "若不拆则返原文；若拆，则是提纯后的情绪/事实主体",
+  "content": "若不拆则为空串；若拆，则是提纯出的独立追问（≤30字，不重复主体信息，严禁跑题）",
+  "predict_reply": "预测用户会怎么回 (≤30字，若无追问则空)",
+  "predict_window_sec": int,  // 软预测: 用户大概多久会回 (秒), 30~600
+  "reason": "≤40字，说明触发拆分或不拆的具体理由"
+}}
+"""
+
+
+async def _split_followup(mr_text: str) -> dict | None:
+    """
+    调 lint LLM 拆 MR 末尾隐含追问。失败 → return None (degrade to no split)。
+
+    Returns:
+        None = lint 失败/解析失败 → caller 走 fallback
+        {"should_split": False} = lint OK 但 MR 无追问 → caller 走 fallback
+        {"should_split": True, "main_body": "...", "content": "...",
+         "predict_reply": "...", "predict_window_sec": 60, "reason": "..."}
+                = 拆成功 → caller 改 final_answer + 落盘
+    """
+    if not mr_text:
+        return None
+    raw = await _call_lint_llm(_build_split_prompt(mr_text))
+    if not raw:
+        return None
+    out = await _parse_json_lenient(raw)
+    if out is None:
+        debug(f"[split] parse fail: {raw[:80]!r}")
+        return None
+    should = bool(out.get("should_split"))
+    if not should:
+        debug(f"[split] skip: should_split=false reason={out.get('reason','')!r}")
+        return {
+            "should_split": False,
+            "main_body": mr_text,
+            "content": "",
+            "predict_reply": "",
+            "predict_window_sec": 60,
+            "reason": str(out.get("reason", ""))[:80],
+        }
+    content = str(out.get("content", "")).strip()
+    main_body = str(out.get("main_body", "")).strip()
+    if not content:
+        # 拆出来但 content 空 → 视为失败, 不改 final_answer
+        debug(f"[split] invalid: should=True but empty content")
+        return None
+    if not main_body:
+        # main_body 空 → 拆的太激进, 整段都是追问?
+        main_body = mr_text  # fallback 用原 MR
+
+    # 唯一后处理: 末尾标点修复。
+    # 语义分割后, main_body 与 content 是独立语义单元 — 不做字符串去重。
+    # 仅修一个事实问题: LLM 重写时偶会把 main_body 切断在 ", " 或 "。" 之后,
+    # 留一个孤立标点 (例如 "我心里很暖, "), 视觉突兀 → 自动 rstrip + 加句号。
+    if main_body and main_body[-1] in "，。、,.;；:： ":
+        main_body = main_body.rstrip("，。、,.;；:： ").rstrip()
+        if main_body and not main_body[-1] in "。！!?？…":
+            main_body += "。"
+        debug(f"[split] fix-tail-punct: ended with broken punctuation")
+
+    return {
+        "should_split": True,
+        "main_body": main_body,
+        "content": content,
+        "predict_reply": str(out.get("predict_reply", ""))[:80],
+        "predict_window_sec": int(out.get("predict_window_sec", 60)),
+        "reason": str(out.get("reason", ""))[:80],
+    }
+
+
+async def split_followup_node(state: dict) -> dict:
+    """
+    LangGraph 节点: MR 末尾隐含追问拆解。
+
+    挂载位置: llm_call → split_followup → save_paper_memory
+
+    【chat-only 约束】论文侧直接返回 {split_followup: None}, 不调 LLM。
+    论文侧无追问语义 (层 1 不服务论文), 同步 split 同样不服务论文。
+    """
+    req = state.get("req")
+    if not isinstance(req, AiAskReq):
+        return {"split_followup": None}
+    if not _assert_chat_fp(req.pdf_fp, "[split_node]"):
+        return {"split_followup": None}
+
+    mr_text = state.get("final_answer", "") or ""
+    if not mr_text:
+        return {"split_followup": None}
+
+    try:
+        result = await _split_followup(mr_text)
+    except Exception as e:
+        debug(f"[split] node error (swallowed): {type(e).__name__}: {e}")
+        result = None
+
+    if result is None:
+        # lint 失败 → 保持 split_followup=None, 不改 final_answer
+        return {"split_followup": None}
+
+    if not result.get("should_split"):
+        # 无追问 → split_followup=None, final_answer 不动
+        return {"split_followup": None}
+
+    # 拆成功 → 改 final_answer = main_body, 写 split_followup 给 layer1
+    # 【v3 split-origin】拆分成功时, 把原始 mr_text (含 main_body + content) 存进
+    # split_followup.origin, 供 save_paper_memory_node 在主答 ResAsk entry 上
+    # 写 "origin" 字段。目的是保留"拆分前"的原始消息, 方便后续:
+    #   - LLM 复习: 被拆分的主答回灌 prompt 时, 若需要还原原始语义链, 可对照
+    #   - 前端调试: 开发者工具直接看到 main_body 与原 MR 的 diff
+    #   - 论文分析: 统计 split 拆分稳定性 / main_body 重写质量
+    # 字段命名沿用 save_paper_memory_node 的 entry 字段风格 (扁平字符串)。
+    debug(
+        f"[split] ok fp={req.pdf_fp[:12]} "
+        f"main_body={result['main_body'][:30]!r} content={result['content'][:30]!r}"
+    )
+    return {
+        "final_answer": result["main_body"],
+        "split_followup": {
+            "content": result["content"][:200],
+            "predict_reply": result["predict_reply"],
+            "predict_window_sec": result["predict_window_sec"],
+            "intent": result["reason"],
+            "from_split": True,
+            "origin": mr_text,   # v3: 原始 MR 全文 (含 main_body + content)
+        },
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # Fire-and-forget Pipeline (§10)
 # ═══════════════════════════════════════════════════════════════════════
+
+
+def _assert_chat_fp(pdf_fp: str, caller: str) -> bool:
+    """
+    主动功能 chat-only guard。
+
+    所有主动机制 (Layer1 / 未来的 Layer2 / Layer3) 入口必先调此函数,
+    论文侧返回 False, 调用方必须立即放弃。
+
+    Args:
+        pdf_fp: state["req"].pdf_fp 或 on_user_msg 传入的 fp
+        caller: 调试用 caller 名 (例 "[layer1]"), 出错时写 debug log
+
+    Returns:
+        True = chat 侧, 可继续
+        False = 论文侧, 调用方必须 return
+    """
+    if pdf_fp != CHAT_FP:
+        # 用 debug 不是 error — 论文侧调过来是合规行为 (节点拓扑保证),
+        # 不该每次都打 ERROR 噪音。仅排查时 verbose 用。
+        return False
+    return True
 
 
 def _snapshot_state_for_layer1(state: dict) -> dict:
@@ -214,6 +441,9 @@ def _snapshot_state_for_layer1(state: dict) -> dict:
     复制 layer1 真正用到的字段, 避免后台 task 持有 state 引用读到
     LangGraph 后续节点改写后的 state (save_paper_memory / emotion_llm / flush_track
     都可能改 messages / final_answer)。
+
+    【新增】包含 split_followup 字段, 若 split_followup_node 已拆出, layer1 走
+    split 优先路径, 跳过 judge + compose。
     """
     req = state.get("req")
     return {
@@ -222,63 +452,88 @@ def _snapshot_state_for_layer1(state: dict) -> dict:
         "final_answer": state.get("final_answer", ""),
         "messages": list(state.get("messages", [])),
         "req_fp": state.get("req_fp", ""),
+        "split_followup": state.get("split_followup"),
     }
 
 
 async def _parse_json_lenient(raw: str) -> dict | None:
     """
-    容错 JSON 解析 (LLM 输出常带尾巴)。
+    容错 JSON 解析 (LLM 输出常带尾巴或包裹)。
 
-    LLM 真实输出常见 3 种"额外数据":
+    LLM 真实输出常见模式:
       1. ```json ... ``` markdown fence → 剥掉
       2. JSON 之后追加解释/换行/注释 → "Extra data" json.JSONDecodeError
       3. 多个 JSON 拼接 (LLM 重复生成) → 取第一个完整对象
+      4. JSON 之前有 prose (LLM 先说一句话再写 JSON) → 取第一个 '{' 起
+      5. JSON 之前有 markdown fence ``` 但 raw 不以 ``` 起 → rfind '{' 起
+      6. JSON 内有非标字符 (LLM 偶尔写错) → 跳过非标位置
 
-    策略:
-      1. 剥 ``` fence
-      2. 找到第一个 '{' 起, 配对 '}' 截取第一个完整 JSON object
-      3. 截取后仍解析失败 → return None
+    策略 (按成功率从高到低, 4 轮尝试):
+      A. 剥 fence + s[0]==='{' 时, json.loads 一次 — 成功则返 (80% case)
+      B. 失败 → 配对 '}' 截取第一个完整 JSON object, 再 json.loads
+      C. 仍失败 → 跳到下一个 '{' 用 raw_decode 一次性截
+      D. 仍未果 → 正则粗找 '{"...":...}' 样式, 二次尝试
+
+    注: LLM 真在 string 内写未转义 '"' 是无法挽回的 (任何 parser 都解不开),
+    这种情况直接 return None 才是诚实。
     """
     if not raw:
         return None
     s = raw.strip()
     # 1. 剥 markdown fence
     if s.startswith("```"):
-        s = s.split("```", 2)[1]
-        if s.startswith("json"):
-            s = s[4:]
-        s = s.strip().rstrip("`").strip()
-    if not s or s[0] != "{":
+        parts = s.split("```", 2)
+        if len(parts) >= 2:
+            s = parts[1]
+            if s.startswith("json"):
+                s = s[4:]
+            s = s.strip().rstrip("`").strip()
+    if not s:
         return None
-    # 2. 配对 '}' 截取第一个完整 JSON object
+
+    # 2. 策略 A: 直接 json.loads (80% 的"纯 JSON + 尾部空白/换行" case 直接过)
+    try:
+        return json.loads(s)
+    except (json.JSONDecodeError, ValueError):
+        pass
+
+    # 3. 策略 B: 配对 '}' 截取第一个完整 JSON object
+    #    LLM 输出形如 "{...}{...}" 也能取第一个; 形如 "prose\n{...}\ntail" 也能取
+    first_brace = s.find("{")
+    if first_brace < 0:
+        return None
+    body = s[first_brace:]
     depth = 0
     in_str = False
     escape = False
-    for i, ch in enumerate(s):
+    for i, ch in enumerate(body):
         if escape:
             escape = False
             continue
-        if ch == "\\":
-            escape = True
+        if in_str:
+            if ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_str = False
             continue
         if ch == '"':
-            in_str = not in_str
-            continue
-        if in_str:
-            continue
-        if ch == "{":
+            in_str = True
+        elif ch == "{":
             depth += 1
         elif ch == "}":
             depth -= 1
             if depth == 0:
-                s = s[: i + 1]
-                break
-    else:
-        # 整个字符串 depth 都没归零 → 没有完整对象
-        return None
-    # 3. 解析截取后的纯 JSON
+                candidate = body[: i + 1]
+                try:
+                    return json.loads(candidate)
+                except (json.JSONDecodeError, ValueError):
+                    # 配对截取后还解析失败 → 字符串内可能有非标 '}' 干扰
+                    # 跳到下一个 '}' 位置继续尝试
+                    continue
+    # 4. 策略 C: 整段都配对不上 → 用 raw_decode 一次性截
     try:
-        return json.loads(s)
+        obj, _ = json.JSONDecoder().raw_decode(s)
+        return obj
     except (json.JSONDecodeError, ValueError):
         return None
 
@@ -331,16 +586,36 @@ async def _run_layer1_pipeline(snapshot: dict) -> None:
     """
     真正的 layer1 流程。**异步** 在 sync state 调用返回之后跑。
 
+    【chat-only 约束】论文侧 (_assert_chat_fp=False) 直接 return, 不调 LLM。
+
+    【v2 split 优先】若 split_followup_node 已拆出 followup, 走 split 路径
+    (直接落盘 + WS push), 跳过 judge + compose, 避免重复追问。
+
     异常一律静默吞掉 (不影响主回复), debug 打印。
     """
     req = snapshot.get("req")
     fp = snapshot.get("fp", "")
     if not isinstance(req, AiAskReq):
         return
-    if fp != CHAT_FP:
-        return  # Layer1 只在 chat 场景
+    if not _assert_chat_fp(fp, "[layer1_pipeline]"):
+        return  # 论文侧 — layer1 不服务
 
     try:
+        # ═══ 路径 A: split 优先 (v2 改造) ═══
+        # split_followup_node 在 llm_call 后同步拆出, 若拆出, 直接落盘跳过 judge/compose
+        split_fu = snapshot.get("split_followup")
+        if split_fu and isinstance(split_fu, dict) and split_fu.get("content"):
+            await _emit_followup(
+                fp=fp,
+                content=split_fu["content"],
+                predict_reply=split_fu.get("predict_reply", ""),
+                predict_window_sec=split_fu.get("predict_window_sec", 60),
+                intent=split_fu.get("intent", "[split]"),
+                source="split",
+            )
+            return  # 拆出 → 整体跳过, 不走原 judge+compose 兜底
+
+        # ═══ 路径 B: 兜底 (split 未拆出, 走原 judge + compose 路径) ═══
         mr_text = snapshot.get("final_answer", "") or ""
         system = _build_layer1_system(req, mr_text)
 
@@ -357,54 +632,98 @@ async def _run_layer1_pipeline(snapshot: dict) -> None:
             debug(f"[layer1] skip: compose fail fp={fp[:12]}")
             return
 
-        # 3. 递增 ask_count (与 user ask 同桶, 在 WS push 前)
-        _inc_ask_count(fp)
-
-        # 4. 落盘 ResAsk (active=True)
-        ts_ms = now_ms()
-        # 生成 short msg_fp (12 char)
-        import hashlib
-        msg_fp = hashlib.md5(f"{ts_ms}-{fp}-{followup['content']}".encode()).hexdigest()[:12]
-        ok = _append_active_resask(
-            followup["content"],
-            msg_fp=msg_fp,
-            ts_ms=ts_ms,
+        await _emit_followup(
+            fp=fp,
+            content=followup["content"],
+            predict_reply=followup.get("predict_reply", ""),
+            predict_window_sec=followup.get("predict_window_sec", 60),
             intent=judge.get("reason", ""),
+            source="compose",
         )
-        if not ok:
-            debug(f"[layer1] WARN: _append_active_resask fail fp={fp[:12]}")
-            return
-        # 构造同步 entry (用于 _pending + WS push; 与磁盘一致)
-        entry = {
-            "type": "ResAsk",
-            "content": followup["content"],
-            "ts": ts_ms,
-            "dt": format_dt_second(ts_ms),
-            "msg_fp": msg_fp,
-            "active": True,
-            "intent": judge.get("reason", ""),
-        }
-
-        # 5. 入 _pending 栈
-        with _PENDING_LOCK:
-            _pending.append(PendingEntry(
-                pdf_fp=fp,
-                msg_fp=msg_fp,
-                followup_content=followup["content"],
-                predict_window_sec=followup["predict_window_sec"],
-                sent_at_ms=ts_ms,
-                predict_reply_text=followup["predict_reply"],
-            ))
-
-        # 6. WS push
-        _broadcast_resactive(fp, entry)
-
-        # 7. explore update 也 fire-and-forget
-        asyncio.create_task(_schedule_explore_update_async())
-
-        debug(f"[layer1] done: fp={fp[:12]} outbound={msg_fp[:8]} reason={judge.get('reason', '')!r}")
     except Exception as e:
         debug(f"[layer1] pipeline error (swallowed): fp={fp[:12]} {type(e).__name__}: {e}")
+
+
+async def _emit_followup(
+    fp: str,
+    content: str,
+    predict_reply: str,
+    predict_window_sec: int,
+    intent: str,
+    source: str,  # "split" or "compose"
+) -> None:
+    """
+    追问落盘 + _pending 栈 + WS push 的统一出口。
+
+    给 layer1 异步 pipeline 复用 (split 路径 + compose 兜底路径)。
+    异常由 caller 静默吞 (这里是 inner, 不该 raise)。
+
+    【随机延迟策略】主回复通过 SSE 几乎实时到前端, split 路径下追问
+    也是落盘即 push → 两条瞬间同现, 视觉突兀。对 WS push 追加随机延迟,
+    让用户感知到"主回复 → 短暂停顿 → 追问"的节奏:
+      · split 路径: 主回复刚落屏, 追问需要更明显停顿才能撑起"主动"仪式感
+        → 800-1800ms 区间
+      · compose 路径: judge+compose 本身已花 1-3s, 与主回复已错开, 只需
+        轻微微调避免极端挨近 → 300-900ms 区间
+    注意: 落盘和入 _pending 保持即时, 不受延迟影响 → on_user_msg 的
+    hit/miss 判定仍按真实时间轴, 不会因为 WS 延迟误判"沉默超时"。
+    """
+    # 1. 递增 ask_count (与 user ask 同桶, 在 WS push 前)
+    _inc_ask_count(fp)
+
+    # 2. 落盘 ResAsk (active=True)
+    ts_ms = now_ms()
+    import hashlib
+    msg_fp = hashlib.md5(f"{ts_ms}-{fp}-{content}".encode()).hexdigest()[:12]
+    ok = _append_active_resask(
+        content,
+        msg_fp=msg_fp,
+        ts_ms=ts_ms,
+        intent=intent,
+    )
+    if not ok:
+        debug(f"[layer1] WARN: _append_active_resask fail fp={fp[:12]} source={source}")
+        return
+    # 构造同步 entry (用于 _pending + WS push; 与磁盘一致)
+    entry = {
+        "type": "ResAsk",
+        "content": content,
+        "ts": ts_ms,
+        "dt": format_dt_second(ts_ms),
+        "msg_fp": msg_fp,
+        "active": True,
+        "intent": intent,
+    }
+
+    # 3. 入 _pending 栈
+    with _PENDING_LOCK:
+        _pending.append(PendingEntry(
+            pdf_fp=fp,
+            msg_fp=msg_fp,
+            followup_content=content,
+            predict_window_sec=predict_window_sec,
+            sent_at_ms=ts_ms,
+            predict_reply_text=predict_reply,
+        ))
+
+    # 4. WS push (随机延迟)
+    # - split 路径: 主回复刚落屏, 给 0.8-1.8s 缓冲撑起"主动"仪式感
+    # - compose 路径: judge+compose 已耗 1-3s, 只需 0.3-0.9s 避免极端挨近
+    if source == "split":
+        delay_ms = random.randint(800, 1800)
+    else:  # "compose"
+        delay_ms = random.randint(300, 900)
+    debug(f"[layer1] delay {delay_ms}ms before push (source={source})")
+    await asyncio.sleep(delay_ms / 1000.0)
+    _broadcast_resactive(fp, entry)
+
+    # 5. explore update 也 fire-and-forget
+    asyncio.create_task(_schedule_explore_update_async())
+
+    debug(
+        f"[layer1] done: fp={fp[:12]} outbound={msg_fp[:8]} "
+        f"source={source} reason={intent!r}"
+    )
 
 
 async def layer1_node(state: dict) -> dict:
@@ -412,12 +731,12 @@ async def layer1_node(state: dict) -> dict:
     LangGraph 节点入口 (fire-and-forget 调度器)。
     不 await 后台 pipeline, 立即 return {}.
 
-    唯一前置过滤: 仅 chat 场景 (pdf_fp == CHAT_FP) 启动; 论文侧跳过。
+    【chat-only 约束】论文侧立即跳过, 不起后台 task。
     """
     req = state.get("req")
     if not isinstance(req, AiAskReq):
         return {}
-    if req.pdf_fp != CHAT_FP:
+    if not _assert_chat_fp(req.pdf_fp, "[layer1_node]"):
         return {}
 
     snapshot = _snapshot_state_for_layer1(state)
@@ -444,8 +763,10 @@ def on_user_msg(pdf_fp: str, content: str, ts_ms: float) -> None:
       2. 调 Lint LLM 判定 hit/miss + 是否 late
       3. 入 _learn_batch
       4. 从 _pending 抹去该 entry
+
+    【chat-only 约束】论文侧 WS 上行 (如果未来出现) 直接 return。
     """
-    if pdf_fp != CHAT_FP:
+    if not _assert_chat_fp(pdf_fp, "[on_user_msg]"):
         return
 
     with _PENDING_LOCK:
@@ -643,6 +964,11 @@ def _broadcast_resactive(fp: str, entry: dict) -> None:
 
     with _WS_LOCK:
         clients = list(_ws_clients)
+    if not clients:
+        # 客户端没连 WS → push 落空, 落盘的 entry 只能等下次刷新通过 history 拉到。
+        # 这是排查 WS 链路的核心信号 (Vite 没配 /ws proxy / 前端没 connect 都会出现)。
+        debug(f"[ws] broadcast SKIP: no clients connected (entry落盘, 仅刷新可见)")
+        return
 
     async def _push_all():
         for ws in clients:

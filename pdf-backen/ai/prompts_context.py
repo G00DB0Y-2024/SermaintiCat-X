@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import Optional
 
 from .ai_models import AiAskReq, AiLoadReq
+from .ai_config import CHAT_FP
 from .ai_emotion import build_emotion_context_block
 from .ai_io import _get_track, _load_emotion
 from .ai_utils import format_dt_second, get_device_context
@@ -509,15 +510,27 @@ def build_track_summary_block() -> str:
             ts = e.get("ts_str", "")
             user = e.get("user", "")
             asst = e.get("assistant", "")
-            lines.append(f"- [{ts} 用户说]\n  {user}")
+            # 【v3 全局化】chat 也进 track 后, 需要区分语境: 论文对话 vs 闲聊对话,
+            # 让 LLM 知道"这段记忆发生在什么场景下"。论文 fp 在 _append_track 时
+            # 写入, chat fp 同理, 缺省 fallback "chat"。
+            pdf_fp = e.get("pdf_fp", "")
+            if pdf_fp == CHAT_FP:
+                scene = "闲聊"
+            elif pdf_fp:
+                scene = f"论文:{pdf_fp[:8]}"
+            else:
+                scene = "未知场景"
+            lines.append(f"- [{ts} {scene} 用户说]\n  {user}")
             if asst:
                 # 关键区分: 主动开口 vs 回复。新字段是 entry.active
                 # (旧命名字段已物理清理, 只有 ai_active
                 # 落盘的追问 ResAsk 会写 active=True)。保留这个标签让
                 # LLM 能区分"我主动找他"和"他找我我应答" —— 而这两者
                 # 对他的打扰程度天差地别, 是节奏规律/分寸归纳的核心依据。
+                # 【v4 时间戳一致】label 前也带 [ts], 与上面"用户说"对齐,
+                # 让 LLM 一眼看到"这是哪个时点我说的", 方便它读时间序列。
                 label = "Crystal主动说" if e.get("active") else "Crystal回复说"
-                lines.append(f"  [{label}]\n  {asst}")
+                lines.append(f"  [{ts} {label}]\n  {asst}")
 
     if load_track:
         lines.append("")
@@ -528,7 +541,8 @@ def build_track_summary_block() -> str:
             asst = e.get("assistant", "")
             lines.append(f"- [{ts} 选段]\n  {chosen}")
             if asst:
-                lines.append(f"  [总结]\n  {asst}")
+                # 同样的"label 带 ts"统一, [总结] 之前也带上 ts, 风格与 ask track 一致。
+                lines.append(f"  [{ts} 总结]\n  {asst}")
 
     return "\n".join(lines)
 

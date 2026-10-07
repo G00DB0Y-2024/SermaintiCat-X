@@ -133,6 +133,7 @@ async def ai_ask(req: AiAskReq) -> AiResp:
             req_fp=result.get("req_fp", "") or "",
             res_fp=result.get("res_fp", "") or "",
             emotion=result.get("emotion") or {},
+            split_followup=result.get("split_followup"),
         )
     except HTTPException:
         raise

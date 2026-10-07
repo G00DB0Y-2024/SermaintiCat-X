@@ -530,7 +530,10 @@ async def ws_endpoint(websocket: WebSocket):
 
     连接维护:
       · FastAPI/WebSocket 原生处理重连, 前端 ws.onclose / onerror 中重连即可。
-      · 客户端 onopen 后无需发 ping, keepalive 由网络层处理。
+      · 应用层 ping/pong 保活 (chat 场景用户可能沉默 > 1h, 任何中间环节
+        路由器/NAT/nginx 都会在 60-300s idle 后清连接):
+          客户端每 30s 发 {"type":"ping"} → 服务端回 {"type":"pong"}。
+        不更新业务状态, 仅用于刷新中间链路 idle 计数器。
     """
     from ai.ai_active import (
         on_user_msg,
@@ -557,6 +560,12 @@ async def ws_endpoint(websocket: WebSocket):
                     content=msg.get("content", ""),
                     ts_ms=float(msg.get("ts_ms", 0)),
                 )
+            elif msg_type == "ping":
+                # 应用层保活: 静默回 pong, 不动业务状态
+                try:
+                    await websocket.send_text(json.dumps({"type": "pong"}))
+                except Exception as e:
+                    debug(f"[ws] pong send fail: {type(e).__name__}: {e}")
     except WebSocketDisconnect:
         debug("[ws] client disconnected")
     finally:

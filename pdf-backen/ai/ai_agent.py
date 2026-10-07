@@ -108,6 +108,13 @@ class PaperAIState(TypedDict):
     paper_ask_history:   当前 pdf_fp 最近 ASK_LOCAL_LIMIT 对 ask 历史 (role 交替)
     paper_load_history:  当前 pdf_fp 最近 LOAD_LOCAL_LIMIT 对 load 历史 (role 交替)
     final_answer:        llm_call 返回的最终 content
+                         (split_followup_node 之后, 若拆分成功, 会被改写为 main_body 主体,
+                          原 MR 末尾问句剥离 → 进 _pending 栈)
+    split_followup:      split_followup_node 输出的拆包结果。
+                         None = MR 无隐含追问, 或拆解失败 (lint 异常 / lint 返回非 JSON)。
+                         dict 时 keys: {"content", "predict_reply", "predict_window_sec",
+                         "intent", "from_split=True"}。
+                         仅 chat 侧消费; 论文侧节点全 null。
     usage:               上游 LLM 的 usage 统计
     dt:                  服务端时间字符串 (北京时区, 秒级, 来自 now_ms 单源时间),
                          通过 AiResp.dt 透传给前端, 保证前后端时间一致。
@@ -127,6 +134,7 @@ class PaperAIState(TypedDict):
     paper_ask_history: list[dict]
     paper_load_history: list[dict]
     final_answer: str
+    split_followup: dict | None
     usage: dict
     dt: str
     req_fp: str
@@ -376,6 +384,20 @@ async def save_paper_memory_node(state: PaperAIState) -> dict:
         res_fp = f"{secrets.token_hex(3)[:6]}_{res_ts}"
         res_entry["msg_fp"] = res_fp
 
+    # 【v3 split-origin】若本轮触发了 split, 在主答 entry 上加 origin 字段,
+    # 记录"拆分前"的原始 MR 全文 (含 main_body + content)。
+    # 仅 chat 侧 + 仅 ResAsk 主答上有, 主动追问 (active=True) 那条不加
+    # (origin 是"主答拆分语义"的标记, 追问有 from_split 字段已够)。
+    # split_followup 是 split_followup_node 写入 state 的字段, 仅 chat 侧消费。
+    split_fu = state.get("split_followup")
+    if (
+        isinstance(split_fu, dict)
+        and split_fu.get("from_split")
+        and split_fu.get("origin")
+        and res_type == "ResAsk"
+    ):
+        res_entry["origin"] = split_fu["origin"]
+
     # --- 读 + 追加 + 写盘 ---
     path = _paper_history_path(fp)
     history: list = _read_json_safe(path, [])
@@ -448,15 +470,28 @@ async def update_agent_memory_node(state: PaperAIState) -> dict:
             count = _get_ask_count(fp)   # vision 不计数, 仅用于日志
             trigger_mem = False
 
-        # 非 chat 场景下, 把 ask 追加到论文全局 track (track_summary_block 喂 ChatView)。
-        # chat 不写 track, 是为了避免 chat 自己的对话回灌到 chat system prompt 引起循环污染。
-        if not is_chat and not is_vision:
+        # 【v3 全局化】所有 ask 场景都进同一 track (论文 + chat), 由 build_track_summary_block
+        # 在 ChatView system prompt 阶段统一摘录 "近期对话感知"。chat 路径不再 skip:
+        #   - 拆成功的 split: assistant 字段存 main_body (而非原 MR), 与落盘的 ResAsk 一致
+        #   - 拆失败 / 无 split: assistant = answer (即整条 MR)
+        # user / assistant 都 [:200] 截断, 与论文侧同尺寸约定。
+        # 循环污染风险由 MAX_ASK_TRACK (15) FIFO 控制, 详见 ai_config.MAX_ASK_TRACK 注释。
+        if not is_vision:
+            split_fu = state.get("split_followup")
+            asst_for_track = answer
+            if (
+                isinstance(split_fu, dict)
+                and split_fu.get("from_split")
+                and split_fu.get("origin")
+            ):
+                # split 成功时, answer 已经被 split_followup_node 改写成 main_body
+                asst_for_track = answer
             _append_track("ask", {
                 "ts": ts,
                 "ts_str": dt_str,
                 "pdf_fp": fp,
                 "user": req.ask[:200],
-                "assistant": answer[:200],
+                "assistant": asst_for_track[:200],
             })
 
         if trigger_mem:
