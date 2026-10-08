@@ -34,17 +34,12 @@ from .ai_config import (
 )
 from .ai_io import (
     _agent_memory_cache,  # noqa: F401  # 由 _set_agent_memory_cache 同包维护
-    _append_track,
     _get_ask_count,
     _inc_ask_count,
-    _ask_track_list,  # noqa: F401  # 模块单例引用保持
-    _flush_track_to_disk,
     _get_agent_explore,
     _get_agent_memory,
     _get_agent_self,
-    _get_track,
     _invalidate_history_cache,
-    _load_chat_history_for_memory,
     _load_paper_history,
     load_chat_messages,
     _paper_history_path,
@@ -56,7 +51,6 @@ from .ai_llm import _call_llm
 from .ai_models import AiAskReq, AiLoadReq
 from .ai_utils import now_ms, format_dt_second
 from .prompts_context import (
-    build_track_summary_block,
     buildMemoryCompressUserPrompt,
     buildMemoryUpdateUserPrompt,
     buildSelfCompressUserPrompt,
@@ -101,7 +95,7 @@ class PaperAIState(TypedDict):
                          仅 chat 侧 (pdf_fp == CHAT_FP) 消费并注入 system prompt;
                          论文侧 (SYSTEM_LOAD / SYSTEM_ASK 论文分支) 刻意不注入,
                          避免哲学化内容干扰客观学术问答。
-    agent_explore:       从 explore.md 加载的 Markdown 全文 (主动外呼档案)。
+    agent_explore:       从 Crystal_explore.md 加载的 Markdown 全文 (主动外呼档案)。
                          仅 chat 侧消费并注入 system prompt —— 称呼约定/互动仪式/
                          边界忌讳已从 memory 迁出, chat 侧不读 A 就会忘记怎么称呼他。
     paper_history:       兼容字段, 论文侧即为 paper_ask_history
@@ -120,10 +114,10 @@ class PaperAIState(TypedDict):
                          通过 AiResp.dt 透传给前端, 保证前后端时间一致。
     req_fp:              save_paper_memory_node 生成的 ReqAsk msg_fp。
                          Load 模式为空字符串。透传给 AiResp.req_fp,
-                         让前端 ai_res 中用户气泡的 msg_fp 与 paper_history / track 对齐。
+                         让前端 ai_res 中用户气泡的 msg_fp 与 paper_history 对齐。
     res_fp:              save_paper_memory_node 生成的 ResAsk msg_fp。
                          Load 模式为空字符串。透传给 AiResp.res_fp,
-                         让前端 ai_res 中 AI 气泡的 msg_fp 与 paper_history / track 对齐。
+                         让前端 ai_res 中 AI 气泡的 msg_fp 与 paper_history 对齐。
     """
     req: Any  # AiAskReq | AiLoadReq
     messages: list[dict]
@@ -177,7 +171,9 @@ async def load_paper_history_node(state: PaperAIState) -> dict:
     """
     一次性加载当前 pdf_fp 的 ask + load 两条历史轨。
 
-    设计: 论文侧上下文按 fp 隔离, 不再读全局 track。
+    设计: 论文侧上下文按 fp 隔离, 数据源是 save/{fp}_ai.json (经过 _load_paper_history
+    按 mode + limit 截取)。全局 track 子系统已废弃, 不再读写。
+
     但 ask 轨需要 load 轨作为辅助概要 (论文中的选段总结能帮 LLM 理解上下文),
     所以两个都加载, 各自按 limit 上限截取, 写入 state 供后续 compose_messages_node 拼装。
 
@@ -185,7 +181,7 @@ async def load_paper_history_node(state: PaperAIState) -> dict:
       - ask_history 作为 Chat 本地上下文 (CHAT_LOCAL_LIMIT 对)
         走新统一入口 ai_io.load_chat_messages, 它从 crystal_chat_ai.json 取最近 N 轮
         并在每条 content 头部嵌 "[<ts> 用户说 / Crystal主动说 / Crystal回复]" 标签。
-        → LLM 一次性看到"谁在什么时间说的", 无需另读 track。
+        → LLM 一次性看到"谁在什么时间说的"。
         → 主动/被动通过 label 区分, 与旧 entry.active 同义 (ResAsk active=True → "Crystal主动说")。
       - load_history 暂不使用 (Chat 不会 Load)
 
@@ -241,10 +237,11 @@ async def compose_messages_node(state: PaperAIState) -> dict:
 
     Chat Ask (pdf_fp == CHAT_FP):
       [system]  CrystalPersona + time + device + agent_mem + agent_self + agent_explore
-                + "全局闲聊" + 论文 track 摘要块 + emotion
+                + [近期对话感知] 块 (chat audit, 由 build_chat_audit_block 拼装)
+                + emotion
       [chat_msgs]  ChatView 本地近 Z=CHAT_LOCAL_LIMIT 对
       [user]    本轮提问
-      -> 论文全局 track 通过 _get_track 注入 (track 仅含论文, 因为 _append_track 已过滤)
+      -> 上下文按 chat fp 完全隔离, 不依赖任何 track 子系统
       -> **全量注入 (explore + memory + self)**: chat 是 Crystal 的人格主场,
          三份档案一起给。explore 必须给: 称呼约定("XX好, 主人")已从 memory
          迁出, 不注入则日常对话里 Crystal 会忘记自己该怎么称呼他。
@@ -272,7 +269,7 @@ async def compose_messages_node(state: PaperAIState) -> dict:
             # self / explore 只在这里进 system, 论文分支刻意不传 —— 学术问答要的是
             # 客观准确, 自我认知与外呼约定里的哲学/期待类内容会诱导表演, 反而拉低
             # 回答质量; 论文侧也没有"该不该主动开口"的问题。
-            # agent_explore 当前不消费 (explore.md 注入段在前一轮重构中已删除,
+            # agent_explore 当前不消费 (Crystal_explore.md 注入段在前一轮重构中已删除,
             # 后续 ai_active 重写 explore 处理时再接回), 保留入参占位。
             messages = compose_chat_messages(
                 req, ask_history, agent_mem, time_context,
@@ -334,9 +331,9 @@ async def save_paper_memory_node(state: PaperAIState) -> dict:
 
     返回字段:
       req_fp: 本轮 ReqAsk 的 msg_fp (Load 模式为空字符串), 供 AiResp 透传给前端,
-              让前端 ai_res 中用户气泡的 msg_fp 与 paper_history / track 完全对齐。
+              让前端 ai_res 中用户气泡的 msg_fp 与 paper_history 完全对齐。
       res_fp: 本轮 ResAsk 的 msg_fp (Load 模式为空字符串), 供 AiResp 透传给前端,
-              让前端 ai_res 中 AI 气泡的 msg_fp 与 paper_history / track 完全对齐。
+              让前端 ai_res 中 AI 气泡的 msg_fp 与 paper_history 完全对齐。
     """
     req = state["req"]
     fp = req.pdf_fp
@@ -439,13 +436,17 @@ def _should_update_memory(fp: str, is_chat: bool) -> bool:
 async def update_agent_memory_node(state: PaperAIState) -> dict:
     """
     Ask 模式:
-      - 论文 fp + 非 Vision: 追加到 ask_track (经 _append_track 自动过滤 chat fp)
-      - Chat fp: 不写 track, 不写 mem (论文 track 保持纯净)
-      - 论文 fp: 节流触发 _update_crystal_memory_async (默认每 5 次 ask 一次)
-      - Vision Ask (img 非空): 不进 track, 但仍可节流触发 memory update
+      - 论文 fp + 非 Vision: 节流触发 _update_crystal_memory_async
+        (默认每 MEMORY_UPDATE_EVERY_N 次 ask 一次)
+      - Chat fp: 同样按 MCP 节流 (与论文 fp 共用同一套计数 + 节流)
+      - Vision Ask (img 非空): 不进计数 (避免图片污染节流), 仍可触发 memory update
+
     Load 模式:
-      - 论文 fp: 追加到 load_track
-      - Chat fp: 不写 track
+      - 论文 fp: 仅做节流触发判定, 不再写 track; load 历史已由
+        _load_paper_history 通过 save/{fp}_ai.json 持久化。
+      - Chat fp: 同上, 不需要再写 track。
+
+    【v7 删除】track 子系统已废弃, 不再向 ask/load track 写记录。
     """
     req = state["req"]
     answer = state["final_answer"]
@@ -470,29 +471,10 @@ async def update_agent_memory_node(state: PaperAIState) -> dict:
             count = _get_ask_count(fp)   # vision 不计数, 仅用于日志
             trigger_mem = False
 
-        # 【v3 全局化】所有 ask 场景都进同一 track (论文 + chat), 由 build_track_summary_block
-        # 在 ChatView system prompt 阶段统一摘录 "近期对话感知"。chat 路径不再 skip:
-        #   - 拆成功的 split: assistant 字段存 main_body (而非原 MR), 与落盘的 ResAsk 一致
-        #   - 拆失败 / 无 split: assistant = answer (即整条 MR)
-        # user / assistant 都 [:200] 截断, 与论文侧同尺寸约定。
-        # 循环污染风险由 MAX_ASK_TRACK (15) FIFO 控制, 详见 ai_config.MAX_ASK_TRACK 注释。
-        if not is_vision:
-            split_fu = state.get("split_followup")
-            asst_for_track = answer
-            if (
-                isinstance(split_fu, dict)
-                and split_fu.get("from_split")
-                and split_fu.get("origin")
-            ):
-                # split 成功时, answer 已经被 split_followup_node 改写成 main_body
-                asst_for_track = answer
-            _append_track("ask", {
-                "ts": ts,
-                "ts_str": dt_str,
-                "pdf_fp": fp,
-                "user": req.ask[:200],
-                "assistant": asst_for_track[:200],
-            })
+        # 【v7 删除】track 子系统已废弃, 不再向 _append_track 写入 ask 记录。
+        # chat 路径改读 save/crystal_chat_ai.json (build_chat_audit_block),
+        # 论文节点的 memory/self update 通过 ask_history / load_history state
+        # 取窗口上下文 (见 save_paper_memory_node), 不再依赖全局 track。
 
         if trigger_mem:
             # 已有 memory update 在跑, 跳过 ——
@@ -517,19 +499,8 @@ async def update_agent_memory_node(state: PaperAIState) -> dict:
                 f"[crystal_memory] SKIP: is_chat={is_chat} is_vision={is_vision} "
                 f"count={_get_ask_count(fp)}/{MEMORY_UPDATE_EVERY_N}"
             )
-    else:
-        # Load 模式: 论文 fp 写 load_track (chat fp 不写)
-        if not is_chat:
-            _append_track("load", {
-                "ts": ts,
-                "ts_str": dt_str,
-                "pdf_fp": fp,
-                "chosen_text": req.chosen_text[:200],
-                "assistant": answer[:200],
-            })
-            debug("[crystal_memory] load mode: appended to load_track")
-        else:
-            debug("[crystal_memory] load mode: skipped (chat fp)")
+    # else: Load 模式 — paper load 历史已由 _load_paper_history 通过
+    # save/{fp}_ai.json 持久化, memory/self update 节点直接读 history。
 
     return {}
 
@@ -541,17 +512,16 @@ async def _update_crystal_memory_async(
     fp: str = "",
 ) -> None:
     """
-    后台任务: 读 Crystal_memory.md 与 Crystal_self.md, 把当前 fp 窗口内的双轨 track (或 chat 历史)
-    + 本轮对话一起喂 LLM, 写回两份笔记。
+    后台任务: 读 Crystal_memory.md 与 Crystal_self.md, 加上本轮对话,
+    喂 LLM 后写回两份笔记。
 
     ════ Pipeline (按用户设计) ════
       Phase 1:  compress (memory + self)  (LLM × 2, 并发 asyncio.gather)
       Phase 2a: Crystal_memory update      (LLM #3) — 基础:compressed_mem,
-                                             上下文: ask_track + load_track + 当前对话
+                                             上下文: 当前对话
                                              ⚠️ 不加载 Crystal_self
       Phase 2b: Crystal_self   update      (LLM #4) — 基础:compressed_self,
-                                             上下文: 更新过的 new_mem
-                                             + ask_track + load_track + 当前对话
+                                             上下文: 更新过的 new_mem + 当前对话
 
     输入边界规则 (与原有 memory 链路一致):
       · 用户问 Crystal -> system prompt 只注入 Crystal_memory (load_agent_memory_node
@@ -567,8 +537,10 @@ async def _update_crystal_memory_async(
     异常隔离: 每个 phase 独立 try/except, 任一失败不影响其余 phase。
     失败静默, 不影响用户响应。两份 md 都是锦上添花, 损坏不应阻塞主链路。
 
-    track 取的是**当前论文 fp 窗口内**最近 N 条 ask + M 条 load, 与原逻辑一致。
-    ChatView (fp == CHAT_FP) 场景: 直接从 crystal_chat_ai.json 读最近 CHAT_MEMORY_LIMIT 对。
+    【v7 删除】原 ask_track / load_track 输入已移除, update prompt 上下文
+    仅含"当前 md + 本轮对话 + 时间戳"。近 N 对对话历史已统一在
+    compose_messages_node 阶段通过 state["paper_ask_history"] 喂给主对话 LLM,
+    不再注入到 update prompt (独立 LLM 调用)。
     """
     from .ai_io import _ensure_memory_dir
 
@@ -604,21 +576,7 @@ async def _update_crystal_memory_async(
             f"mem_len={len(current_mem)} self_len={len(current_self)}"
         )
 
-        # ── 取上下文轨 (与原逻辑一致) ──
-        is_chat = (fp == CHAT_FP)
-        if is_chat:
-            ask_track, load_track = _load_chat_history_for_memory()
-        else:
-            ask_track = [
-                e for e in (_get_track("ask") or []) if e.get("pdf_fp") == fp
-            ]
-            load_track = [
-                e for e in (_get_track("load") or []) if e.get("pdf_fp") == fp
-            ]
-        debug(
-            f"[crystal_memory] TRACK: is_chat={is_chat} "
-            f"ask_count={len(ask_track)} load_count={len(load_track)}"
-        )
+
 
         # ═══════════════════════════════════════════════════════════════
         # Phase 1: 并发执行 1a (memory compress) + 1b (self compress)
@@ -676,8 +634,7 @@ async def _update_crystal_memory_async(
         # ═══════════════════════════════════════════════════════════════
         debug(
             f"[crystal_memory] PHASE 2a memory update -> LLM: "
-            f"input_len={len(compressed_mem)} "
-            f"ask={len(ask_track)} load={len(load_track)}"
+            f"input_len={len(compressed_mem)}"
         )
         try:
             new_mem = await _call_memory_update_llm(
@@ -685,8 +642,6 @@ async def _update_crystal_memory_async(
                 user_msg,
                 assistant_msg,
                 current_timestamp,
-                ask_track,
-                load_track,
             )
             stats["mem_update_delta"] = (len(new_mem) - len(compressed_mem)) if new_mem else 0
             debug(
@@ -719,15 +674,14 @@ async def _update_crystal_memory_async(
         # ═══════════════════════════════════════════════════════════════
         # Phase 2b: Crystal_self update
         #   加载: compressed_self (基础) + new_mem (刚更新好的, 作为外部参照)
-        #        + ask_track + load_track + 当前对话 + 当前时间戳
+        #        + 当前对话 + 当前时间戳
         # ═══════════════════════════════════════════════════════════════
         # 如果 Phase 2a 失败了, 用 compressed_mem 作为参照 — 至少不会因为 memory 翻车
         # 而导致 self 拿不到任何上下文。
         mem_for_self = new_mem if new_mem else compressed_mem
         debug(
             f"[crystal_memory] PHASE 2b self update -> LLM: "
-            f"self_input_len={len(compressed_self)} mem_ref_len={len(mem_for_self)} "
-            f"ask={len(ask_track)} load={len(load_track)}"
+            f"self_input_len={len(compressed_self)} mem_ref_len={len(mem_for_self)}"
         )
         try:
             new_self = await _call_self_update_llm(
@@ -736,8 +690,6 @@ async def _update_crystal_memory_async(
                 user_msg,
                 assistant_msg,
                 current_timestamp,
-                ask_track,
-                load_track,
             )
             stats["self_update_delta"] = (len(new_self) - len(compressed_self)) if new_self else 0
             debug(
@@ -810,24 +762,23 @@ async def _call_memory_update_llm(
     user_msg: str,
     assistant_msg: str,
     current_timestamp: str = "",
-    ask_track: list[dict] | None = None,
-    load_track: list[dict] | None = None,
 ) -> str:
     """
     调 LLM 更新 Crystal_memory.md, 返回新的 Markdown 文本。
 
     参数:
       current_timestamp: 秒级可读时间字符串 (来自 now_ms + format_dt_second)
-      ask_track: 当前 fp 论文窗口内的最近 N 条 ask (按 pdf_fp 过滤)
-      load_track: 当前 fp 论文窗口内的最近 M 条 load (按 pdf_fp 过滤)
 
     ⚠️ 不传入 self: memory 只关心用户认知, 不载入 Crystal 关于自己的笔记。
+
+    【v7 删除】ask_track / load_track 参数已移除 —— 全局 track 子系统废弃,
+    update prompt 上下文仅含"当前笔记 + 本轮对话 + 时间戳"。
     """
     messages = [
         {"role": "system", "content": MEMORY_UPDATE_SYSTEM()},
         {"role": "user", "content": buildMemoryUpdateUserPrompt(
             current_md, user_msg, assistant_msg,
-            current_timestamp, ask_track, load_track,
+            current_timestamp,
         )},
     ]
     content, _ = await _call_llm(messages=messages, vision_model=False, disable_thinking=True)
@@ -873,8 +824,6 @@ async def _call_self_update_llm(
     user_msg: str,
     assistant_msg: str,
     current_timestamp: str = "",
-    ask_track: list[dict] | None = None,
-    load_track: list[dict] | None = None,
 ) -> str:
     """
     调 LLM 更新 Crystal_self.md, 返回新的 Markdown 文本。
@@ -883,6 +832,8 @@ async def _call_self_update_llm(
       · 基础是压缩后的旧 self
       · 多喂一个「刚更新好的 memory」作为外部参照 (让 LLM 知道「我对用户的认知」,
         反向校准自我定位)
+
+    【v7 删除】ask_track / load_track 参数已移除 —— 全局 track 子系统废弃。
     """
     messages = [
         {"role": "system", "content": SELF_UPDATE_SYSTEM()},
@@ -892,8 +843,6 @@ async def _call_self_update_llm(
             user_msg,
             assistant_msg,
             current_timestamp,
-            ask_track,
-            load_track,
         )},
     ]
     content, _ = await _call_llm(messages=messages, vision_model=False, disable_thinking=True)
@@ -929,15 +878,3 @@ async def _call_self_compress_llm(
     except Exception as e:
         debug(f"[crystal_memory] self compress FAIL: {type(e).__name__}: {e}")
         return current_self_md, True
-
-
-async def flush_track_node(state: PaperAIState) -> dict:
-    """
-    对话结束后的最后一个节点: 把 ask + load 两条 track 缓存一次性写盘 (覆盖式)。
-
-    之前 update_agent_memory_node 用 _append_track 累积到内存 cache + 标 dirty;
-    这里统一做一次 flush, 避免高频小 I/O。
-    """
-    _flush_track_to_disk("ask")
-    _flush_track_to_disk("load")
-    return {}

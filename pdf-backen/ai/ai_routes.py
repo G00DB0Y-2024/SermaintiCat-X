@@ -122,7 +122,7 @@ async def ai_ask(req: AiAskReq) -> AiResp:
     api_key / api_url / model / vision_model 来自 ai_config。
 
     响应中 req_fp / res_fp 是 save_paper_memory_node 生成的 msg_fp,
-    供前端写回 ai_res 气泡, 保证 ai_res.msg_fp 与 paper_history / track 完全对齐。
+    供前端写回 ai_res 气泡, 保证 ai_res.msg_fp 与 paper_history 完全对齐。
     """
     try:
         result = await run_ask(req)
@@ -212,7 +212,7 @@ async def ai_history(req: AiHistoryReq) -> AiHistoryResp:
 #
 #   memory  — Crystal_memory.md (U): 关于「他」的认知
 #   self    — Crystal_self.md   (S): Crystal 的自我认知
-#   explore — explore.md        (A): 主动外呼档案 (主动判断 / 节奏规律 / 外呼记录)
+#   explore — Crystal_explore.md (A): 主动外呼档案 (主动判断 / 节奏规律 / 外呼记录)
 #   params  — params.json: 运行期技术状态 (情绪向量 / LLM 配置 / λ / 外呼队列与计数)
 #   plans   — plans.json: 计划外呼队列 (Layer3 硬计划, 人工审计用)
 #
@@ -274,7 +274,7 @@ async def ai_memory(file: str = "memory") -> dict:
     Query 参数:
         file (str): "memory"  (默认, Crystal_memory.md — 关于用户, U 元素)
                     "self"    (Crystal_self.md   — Crystal 自我认知, S 元素)
-                    "explore" (explore.md        — 主动外呼档案, A 元素)
+                    "explore" (Crystal_explore.md — 主动外呼档案, A 元素)
                     "params"  (params.json       — 运行期技术状态, 密钥已脱敏)
                     "plans"   (plans.json        — 计划外呼队列, 密钥已脱敏)
                     其它值视为非法, 返回 400 (旧的 "appoint" 已随改名失效)。

@@ -481,7 +481,7 @@ async def emotion_llm_node(state: dict) -> dict:
     调度契约 (与 layer1_node 一致):
       · 论文侧 / Lint LLM 未配置 / 非 AiAskReq → 立即 return {} (不起 task)
       · 复制 state 真正用到的字段到 snapshot, 避免后台 task 持有 state 引用
-        读到 LangGraph 后续节点 (active_layer1 / flush_track) 的修改
+        读到 LangGraph 后续节点 (active_layer1) 的修改
       · 唯一可观察副作用: apply_emotion_delta 写 EMOTION_VECTOR 单例 + params.json,
         这两个是模块级, 不依赖 state, 安全
       · 后端进程被杀 → 后台 task 中断, emotion 此次未更新 (acceptable, 同 layer1)
@@ -510,8 +510,7 @@ async def emotion_llm_node(state: dict) -> dict:
 def _snapshot_state_for_emotion(state: dict) -> dict:
     """
     复制 emotion 真正用到的 state 字段, 避免后台 task 持有 state 引用读到
-    LangGraph 后续节点改写后的 state (active_layer1 / flush_track 都可能
-    改 messages / paper_ask_history)。
+    LangGraph 后续节点改写后的 state (active_layer1 可能改 messages / paper_ask_history)。
 
     _build_conversation_context 读: paper_ask_history (or paper_history) —
     复一份列表即可, 字符串内容是只读不变。

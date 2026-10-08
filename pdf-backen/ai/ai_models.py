@@ -97,9 +97,9 @@ class AiResp(BaseModel):
                  空字符串表示后端未提供 (兼容老接口)。
       req_fp   — 本轮 user 消息的 msg_fp (后端 save_paper_memory_node 生成,
                  '{hex6}_{ts}' 格式)。前端拿到后可写回用户气泡, 与 paper_history
-                 / track 里的 fp 完全对齐。Load 模式此字段为空。
+                 里的 fp 完全对齐。Load 模式此字段为空。
       res_fp   — 本轮 AI 回复的 msg_fp (后端生成, 同样格式)。前端拿到后写回
-                 AI 占位气泡, 与 paper_history / track 里的 fp 对齐。
+                 AI 占位气泡, 与 paper_history 里的 fp 对齐。
                  论文侧前端通常不消费此字段, 但 ChatView 需要用它同步 AI 气泡 fp。
       emotion  — 当前情绪向量 {valence, arousal, novelty, clarity, last_update_dt}。
                  前端 HomeView 用此字段驱动 profile-cover 切图。
@@ -115,12 +115,12 @@ class AiResp(BaseModel):
     req_fp: str = Field(
         default="",
         description="本轮 ReqAsk 的 msg_fp (Load 模式为空)。前端写回用户气泡时使用, "
-                    "保证 ai_res[i].msg_fp 与 paper_history / track 中一致。",
+                    "保证 ai_res[i].msg_fp 与 paper_history 中一致。",
     )
     res_fp: str = Field(
         default="",
         description="本轮 ResAsk 的 msg_fp (Load 模式为空)。前端写回 AI 占位气泡时使用, "
-                    "保证 ai_res[i].msg_fp 与 paper_history / track 中一致。",
+                    "保证 ai_res[i].msg_fp 与 paper_history 中一致。",
     )
     emotion: dict = Field(
         default_factory=dict,

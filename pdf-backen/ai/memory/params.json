@@ -1,13 +1,13 @@
 {
   "ask_count_by_fp": {
-    "crystal_chat": 212
+    "crystal_chat": 237
   },
   "emotion_vector": {
-    "valence": 0.8276446213255039,
-    "arousal": 0.4097251072867759,
-    "novelty": 0.4369254618391203,
-    "clarity": 0.9765173570786474,
-    "last_update_dt": "2026-10-08 00:03:20",
+    "valence": 0.245073946723675,
+    "arousal": 0.0,
+    "novelty": -0.04454976935753881,
+    "clarity": 0.8446872940236867,
+    "last_update_dt": "2026-10-08 08:57:09",
     "version": 1
   },
   "llm_configs": {
@@ -21,7 +21,7 @@
     "lint": {
       "api_key": "sk-8lofrp826JoFBWwFA441CdBf3bB347779c34Cb967b0e84Db",
       "api_url": "https://aihubmix.com/v1/chat/completions",
-      "model": "gemini-2.5-flash-lite"
+      "model": "gemini-2.5-flash-lite-nothink"
     }
   }
 }

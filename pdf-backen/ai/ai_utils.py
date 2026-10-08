@@ -94,7 +94,8 @@ def format_weekday(ts_ms: int) -> str:
 def format_dt_second(ts_ms: int) -> str:
     """
     毫秒时间戳 → 可读字符串 "YYYY-MM-DD HH:MM:SS" (北京时间, 秒级精度)。
-    用于 track.ts_str 和 update memory 的 current_timestamp。
+    用于 ai 消息的 dt 字段 (前端 / 内部时间戳统一来源) 和 update memory
+    的 current_timestamp。
     """
     return _to_beijing_dt(ts_ms).strftime("%Y-%m-%d %H:%M:%S")
 

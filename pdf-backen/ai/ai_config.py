@@ -8,7 +8,7 @@ AI 模块所有可调参数 + LLM 配置。
 
 - 路径:  BASE_DIR / SAVE_DIR / MEMORY_DIR / CRYSTAL_MEMORY_FILE / EXPLORE_FILE /
 
-- 窗口:  ASK_LOCAL_LIMIT / LOAD_LOCAL_LIMIT / CHAT_LOCAL_LIMIT / MAX_ASK_TRACK / ...
+- 窗口:  ASK_LOCAL_LIMIT / LOAD_LOCAL_LIMIT / CHAT_LOCAL_LIMIT / CHAT_AUDIT_LIMIT / ...
 
 - LLM:   DEEPSEEK_MARKER + ai_config 字典 (由 /ai/config 端点维护)
 
@@ -26,7 +26,7 @@ Crystal 三份认知档案的物理落点 (隔离, 互不串档):
 
     S = Crystal_self.md     LLM 读, Crystal 对自己的认知
 
-    A = explore.md          LLM 读, 主动开口的自然语言判断 (软)
+    A = Crystal_explore.md  LLM 读, 主动开口的自然语言判断 (软)
 
 """
 
@@ -88,17 +88,17 @@ CRYSTAL_MEMORY_FILE: Final[str] = os.path.join(MEMORY_DIR, "Crystal_memory.md")
 
 CRYSTAL_SELF_FILE:   Final[str] = os.path.join(MEMORY_DIR, "Crystal_self.md")
 
-# appoint.md → explore.md — 主动外呼档案。
+# appoint.md → Crystal_explore.md — 主动外呼档案。
 
 #
 
 # 与 memory / self 的分工 (三者物理隔离, 互不串档):
 
-#   - Crystal_memory.md (U): 关于「他」的一切认知 —— 身份、偏好、忌讳、项目、环境。
+#   - Crystal_memory.md   (U): 关于「他」的一切认知 —— 身份、偏好、忌讳、项目、环境。
 
-#   - Crystal_self.md   (S): Crystal 对自己的认知 —— 性格、语气、愿望。
+#   - Crystal_self.md     (S): Crystal 对自己的认知 —— 性格、语气、愿望。
 
-#   - explore.md        (A): 关于「主动开口」的档案 —— LLM 自由管理,
+#   - Crystal_explore.md  (A): 关于「主动开口」的档案 —— LLM 自由管理,
 #     不再有固定的三段标题 (三段标题已废止);
 #     整份重写, prompt 仅约束"只写时间相关认知" (活跃时段/沉默含义/回应速度等)。
 
@@ -108,17 +108,13 @@ CRYSTAL_SELF_FILE:   Final[str] = os.path.join(MEMORY_DIR, "Crystal_self.md")
 
 #   旧版有一段「## 约定」承载硬承诺(每天早上问好), 靠正则猜时间窗做硬门控。
 
-#   那套已退役。explore.md 只留「自然语言判断」, 归 LLM 读。
+#   那套已退役。Crystal_explore.md 只留「自然语言判断」, 归 LLM 读。
 
 #   判据是**谁读数据**: LLM 读 md, 代码读 json。
 
-EXPLORE_FILE:       Final[str] = os.path.join(MEMORY_DIR, "explore.md")
+EXPLORE_FILE:       Final[str] = os.path.join(MEMORY_DIR, "Crystal_explore.md")
 
-ASK_TRACK_FILE:  Final[str] = os.path.join(MEMORY_DIR, "Crystal_track_ask.json")
-
-LOAD_TRACK_FILE: Final[str] = os.path.join(MEMORY_DIR, "Crystal_track_load.json")
-
-# 运行期可变参数的持久化文件 (与上面的 track 放在一起, 都是"跨进程要留住"的状态)。
+# 运行期可变参数的持久化文件 ("跨进程要留住"的状态)。
 
 # 目前存 _ask_count_by_fp —— memory update 的节流计数。
 
@@ -154,11 +150,10 @@ PARAMS_FILE: Final[str] = os.path.join(MEMORY_DIR, "params.json")
 
 #
 
-# Track (全局跨论文):
+# Chat 路径近期对话感知:
 
-#   MAX_ASK_TRACK / MAX_LOAD_TRACK: track 文件累计上限, FIFO 裁剪
-
-#
+#   CHAT_AUDIT_LIMIT: build_chat_audit_block 从 save/crystal_chat_ai.json
+#                     读取的最近条目上限
 
 # 节流:
 
@@ -174,13 +169,7 @@ CHAT_LOCAL_LIMIT:  Final[int] = 20
 
 CHAT_MEMORY_LIMIT: Final[int] = 10
 
-MAX_ASK_TRACK:     Final[int] = 15   # 【v3 全局化】5 → 15。
-                            # 论文 + chat 都进同一 track 后, chat 高频会迅速填满旧 5 条窗口,
-                            # 导致论文对话被冲掉。15 条 ≈ 可覆盖近期 ~5 轮论文 + ~5 轮 chat
-                            # (CHAT_LOCAL_LIMIT=10 同类轮询中, 真正活跃的多是 chat 侧),
-                            # 仍保留 FIFO 裁剪防无限膨胀。LOAD 仍仅论文, MAX_LOAD_TRACK 不变。
-
-MAX_LOAD_TRACK:    Final[int] = 3
+CHAT_AUDIT_LIMIT:  Final[int] = CHAT_LOCAL_LIMIT
 
 MEMORY_UPDATE_EVERY_N: Final[int] = 3  # = ASK_LOCAL_LIMIT // 2
 

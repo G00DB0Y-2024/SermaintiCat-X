@@ -1,11 +1,10 @@
 """
-文件 IO + 内存 cache：track / paper_history / memory 文件。
+文件 IO + 内存 cache：paper_history / memory 文件。
 
 集中管理:
 - Crystal_memory.md (CRYSTAL_MEMORY_FILE) 的进程内缓存
 - Crystal_self.md (CRYSTAL_SELF_FILE) 的进程内缓存
-- explore.md (EXPLORE_FILE, 主动外呼档案) 的进程内缓存 + 整份写盘
-- Crystal_track_ask/load.json 的双轨缓存 + dirty 标记 + 写盘策略
+- Crystal_explore.md (EXPLORE_FILE, 主动外呼档案) 的进程内缓存 + 整份写盘
 - save/{fp}_ai.json 的读取 + mtime 缓存
 - ai/memory/params.json 的读写 (存 _ask_count_by_fp / emotion_vector /
   llm_configs, 持久化以跨进程存活; 所有访问都经
@@ -22,15 +21,11 @@ import threading
 from typing import Any
 
 from .ai_config import (
-    ASK_TRACK_FILE,
     CHAT_FP,
     CHAT_MEMORY_LIMIT,
     CRYSTAL_MEMORY_FILE,
     CRYSTAL_SELF_FILE,
     EXPLORE_FILE,
-    LOAD_TRACK_FILE,
-    MAX_ASK_TRACK,
-    MAX_LOAD_TRACK,
     MEMORY_DIR,
     PARAMS_FILE,
     SAVE_DIR,
@@ -121,14 +116,14 @@ def _set_agent_self_cache(md: str) -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# explore.md (主动外呼档案) — 缓存 + 读写
+# Crystal_explore.md (主动外呼档案) — 缓存 + 读写
 # ═══════════════════════════════════════════════════════════════════════
 #
 # 与 memory / self 的区别:
 #   - memory (U): 关于「他」的认知, 注入 chat system。
 #   - self   (S): Crystal 的自我认知, 注入 chat system。
 #   - explore:   关于「主动开口」的档案, 注入 chat system。
-#     LLM 拿到 explore.md 全文自由重写, 无段落约束 (无固定章节)。
+#     LLM 拿到 Crystal_explore.md 全文自由重写, 无段落约束 (无固定章节)。
 #     prompt 仅约束"只写时间相关认知" (活跃时段 / 沉默含义 / 回应速度)。
 #
 # 读: _get_agent_explore()  (全文)
@@ -138,7 +133,7 @@ _explore_cache: str | None = None
 
 
 def _get_agent_explore() -> str:
-    """读 explore.md 缓存 (首次才打磁盘)。缺失时返回空串, 由调用方决定是否回退。"""
+    """读 Crystal_explore.md 缓存 (首次才打磁盘)。缺失时返回空串, 由调用方决定是否回退。"""
     global _explore_cache
     if _explore_cache is None:
         _ensure_memory_dir()
@@ -154,14 +149,14 @@ def _get_agent_explore() -> str:
 
 
 def _set_agent_explore_cache(md: str) -> None:
-    """explore 写盘后同步刷新缓存, 避免下一个请求读到陈旧数据。"""
+    """Crystal_explore 写盘后同步刷新缓存, 避免下一个请求读到陈旧数据。"""
     global _explore_cache
     _explore_cache = md
 
 
 def _write_agent_explore(md: str) -> bool:
     """
-    整份覆盖 explore.md 并刷新缓存。
+    整份覆盖 Crystal_explore.md 并刷新缓存。
 
     与 memory 的写入一样走 atomic 写 (临时文件 + os.replace), 避免后台
     协程写盘时正好被一次读命中半截内容。
@@ -175,15 +170,6 @@ def _write_agent_explore(md: str) -> bool:
         _set_agent_explore_cache(md)
     return ok
 
-
-# ═══════════════════════════════════════════════════════════════════════
-# Crystal_track (跨论文 Ask+Load 全局追踪) — 双轨缓存 + 读写
-# ═══════════════════════════════════════════════════════════════════════
-
-_ask_track_list:  list[dict] | None = None
-_load_track_list: list[dict] | None = None
-_ask_dirty:  bool = False
-_load_dirty: bool = False
 
 # 按 fp 分桶的 ask 计数 (用于 memory update 节流, 跨论文隔离)
 #
@@ -229,10 +215,7 @@ def _save_ask_counts() -> None:
     """
     把 _ask_count_by_fp 写回 params.json (覆盖式)。
 
-    与 track 不同: 计数必须**立即**落盘, 不能等 flush_track_node 统一写 ——
-    flush 是每轮对话末尾才执行, 而计数在节点入口就变了, 两者时序不同。
-
-    实现: 委托给 _save_params 做"读-改-写", 避免与情绪向量的写盘相互覆盖。
+    计数必须**立即**落盘 —— 节点入口就变了, 不能依赖任何延迟统一写。
     """
     _save_params({"ask_count_by_fp": _ask_count_by_fp})
 
@@ -481,107 +464,6 @@ def _save_emotion(emotion: dict) -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-def _get_track(mode: str) -> list[dict]:
-    """
-    读 track 缓存 (懒加载)。
-    mode: "ask" | "load"
-    返回内部 cache 引用 (调用方不应原地修改!)
-    """
-    global _ask_track_list, _load_track_list
-    _ensure_memory_dir()
-
-    track_file = ASK_TRACK_FILE if mode == "ask" else LOAD_TRACK_FILE
-    track_list_ref = (_ask_track_list  if mode == "ask"  else _load_track_list)
-
-    if track_list_ref is None:
-        if os.path.exists(track_file):
-            try:
-                with open(track_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                if isinstance(data, list):
-                    if mode == "ask":
-                        _ask_track_list = data[-MAX_ASK_TRACK:]
-                    else:
-                        _load_track_list = data[-MAX_LOAD_TRACK:]
-                else:
-                    if mode == "ask":
-                        _ask_track_list = []
-                    else:
-                        _load_track_list = []
-            except (json.JSONDecodeError, OSError):
-                if mode == "ask":
-                    _ask_track_list = []
-                else:
-                    _load_track_list = []
-        else:
-            if mode == "ask":
-                _ask_track_list = []
-            else:
-                _load_track_list = []
-
-    return _ask_track_list if mode == "ask" else _load_track_list
-
-
-def _append_track(mode: str, entry: dict) -> None:
-    """
-    追加一条记录到 cache (ask 或 load), FIFO 裁剪。
-
-    注意: 只改内存 cache + 标 dirty, 不立即写盘!
-    写盘由 flush_track_node 在对话结束后统一执行。
-
-    【v3 全局化】不再按 pdf_fp 过滤: 论文 fp 与 chat fp 都进入同一 ask track,
-    让 build_track_summary_block 能从整体对话流 (论文 + 闲聊) 摘录近期对话感知。
-    LOAD track 仍仅论文 (chat 不存在论文选段行为)。
-    """
-    global _ask_dirty, _load_dirty
-    track = list(_get_track(mode))  # 复制
-    max_size = MAX_ASK_TRACK if mode == "ask" else MAX_LOAD_TRACK
-    track.append(entry)
-    if len(track) > max_size:
-        track = track[-max_size:]
-    if mode == "ask":
-        global _ask_track_list
-        _ask_track_list = track
-        _ask_dirty = True
-    else:
-        global _load_track_list
-        _load_track_list = track
-        _load_dirty = True
-    debug(f"[crystal_track] APPEND cached: mode={mode} fp={entry.get('pdf_fp', '')[:8]} total={len(track)}")
-
-
-def _flush_track_to_disk(mode: str) -> None:
-    """
-    把内存 cache 写回对应 track 文件 (覆盖式)。
-    仅在 dirty=True 时执行。
-    """
-    if mode == "ask":
-        global _ask_dirty
-        if not _ask_dirty:
-            return
-        track = _get_track("ask")
-        track_to_write = track[-MAX_ASK_TRACK:]
-        track_file = ASK_TRACK_FILE
-        _ask_dirty = False
-    else:
-        global _load_dirty
-        if not _load_dirty:
-            return
-        track = _get_track("load")
-        track_to_write = track[-MAX_LOAD_TRACK:]
-        track_file = LOAD_TRACK_FILE
-        _load_dirty = False
-
-    try:
-        _ensure_memory_dir()
-        with open(track_file, "w", encoding="utf-8") as f:
-            json.dump(track_to_write, f, ensure_ascii=False)
-        debug(f"[crystal_track] FLUSH ok: mode={mode} total={len(track_to_write)}")
-    except OSError as e:
-        debug(f"[crystal_track] FLUSH FAIL: {e}")
-
-
-# ═══════════════════════════════════════════════════════════════════════
 # Paper history IO — save/{fp}_ai.json 读写 + mtime 缓存
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -619,7 +501,7 @@ def _read_json_safe(path: str, default: Any) -> Any:
         return default
 
     _paper_history_cache[cache_key] = data
-    # 缓存表膨胀保护: 简单随机淘汰 (实际工程中 entry 数受论文 fp 数 + track 上限约束,
+    # 缓存表膨胀保护: 简单随机淘汰 (实际工程中 entry 数受论文 fp 数约束,
     # 单进程内通常不会超过数百条)
     if len(_paper_history_cache) > 64:
         # 移除最旧的一批 entry (按 dict 插入顺序)
@@ -667,7 +549,7 @@ def _resolve_label(role: str, entry: dict) -> str:
 
 def _filter_entries(data: list[dict], targets: set[str]) -> list[dict]:
     """
-    统一过滤规则 (供 _load_paper_history / _load_chat_history_for_memory / load_chat_messages 共用):
+    统一过滤规则 (供 _load_paper_history / load_chat_messages 共用):
       1. 非 dict 直接丢
       2. Anno entry: 完全屏蔽
       3. Vision Ask (ReqAsk + img 非空): 屏蔽 (这条 user + 紧随其后的 assistant 都不要)
@@ -786,57 +668,6 @@ def _load_paper_history(fp: str, mode: str, limit: int) -> list[dict]:
     return out
 
 
-def _load_chat_history_for_memory() -> tuple[list[dict], list[dict]]:
-    """
-    ChatView 场景下, 为 memory update 提供 ask 上下文。
-
-    直接读 save/crystal_chat_ai.json 的最近 CHAT_MEMORY_LIMIT 对 (ReqAsk + ResAsk),
-    转成与论文 track 一致的 {ts, ts_str, user, assistant} 字典, 让 _call_memory_update_llm
-    的 prompt 拼装逻辑无需分支处理。
-
-    返回: (ask_track, load_track); chat 没有 load, 第二项永远为 []。
-
-    实现细节:
-      - 调用 _filter_entries 复用统一过滤规则 (Anno / Vision Ask 屏蔽)
-      - 然后按相邻 ReqAsk + ResAsk 配对, 取最后 CHAT_MEMORY_LIMIT 对
-      - 时区/dt 沿用 save_paper_memory_node 写盘时的 dt 字段 (前端也消费同一个字段)。
-      - content 截断到 200 字符, 保持与论文 track 同样的尺寸约定。
-    """
-    path = _paper_history_path(CHAT_FP)
-    data = _read_json_safe(path, [])
-    if not isinstance(data, list) or not data:
-        return [], []
-
-    # 复用 _filter_entries 做 Anno / Vision Ask 屏蔽, 但 targets 是 (ReqAsk, ResAsk)
-    filtered = _filter_entries(data, {"ReqAsk", "ResAsk"})
-
-    # 把 entry 流配成 user/assistant 对, 取最后 CHAT_MEMORY_LIMIT 对
-    pairs: list[tuple[dict, dict]] = []
-    pending_user: dict | None = None
-    for e in filtered:
-        t = e.get("type", "")
-        if t == "ResAsk" and pending_user is not None:
-            pairs.append((pending_user, e))
-            pending_user = None
-        elif t == "ReqAsk":
-            pending_user = e
-
-    # 取最后 N 对, 转 {user, assistant}
-    tail = pairs[-CHAT_MEMORY_LIMIT:]
-    ask_track: list[dict] = []
-    for u, a in tail:
-        ask_track.append({
-            "ts": a.get("ts", 0),
-            "ts_str": a.get("dt", ""),
-            "pdf_fp": CHAT_FP,
-            "user": (u.get("content") or "")[:200],
-            "assistant": (a.get("content") or "")[:200],
-            # active: 这条 assistant 是不是 Crystal 主动发的 (而非回复)。
-            "active": bool(a.get("active", False)),
-        })
-    return ask_track, []
-
-
 # ═══════════════════════════════════════════════════════════════════════
 # 主动追问落盘 (ai_active 唯一对外入口)
 # ═══════════════════════════════════════════════════════════════════════
@@ -893,7 +724,7 @@ def _append_active_resask(
         debug(f"[active_resask] write FAIL: {e}")
         return False
 
-    # 清缓存, 让下一次 _load_paper_history / _load_chat_history_for_memory 读到新条目
+    # 清缓存, 让下一次 _load_paper_history / load_chat_messages 读到新条目
     _paper_history_cache.pop((path, os.path.getmtime(path)) if os.path.exists(path) else (path, 0), None)
     debug(f"[active_resask] APPEND ok: fp={msg_fp} intent={intent[:40]}")
     return ok

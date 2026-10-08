@@ -1,10 +1,10 @@
 """
-下层：基于历史/track/quote 的最终 prompt 拼装。
+下层: 基于历史 / quote 的最终 prompt 拼装。
 
 包含:
 - Memory 更新 user prompt: MEMORY_UPDATE_USER_HEADER / buildMemoryUpdateUserPrompt
 - Ask/Load 的 user content 构建: build_ask_user_content / build_load_user_content
-- 上下文组装: compose_paper_ask_messages / compose_chat_messages / build_track_summary_block
+- 上下文组装: compose_paper_ask_messages / compose_chat_messages / build_chat_audit_block
 
 buildAskMessages / buildLoadMessages 在原 prompts.py 中的版本已废弃,
 由本文件中的 compose_*_messages 接管, 不再保留。
@@ -14,9 +14,9 @@ from __future__ import annotations
 from typing import Optional
 
 from .ai_models import AiAskReq, AiLoadReq
-from .ai_config import CHAT_FP
+from .ai_config import CHAT_FP, CHAT_AUDIT_LIMIT
 from .ai_emotion import build_emotion_context_block
-from .ai_io import _get_track, _load_emotion
+from .ai_io import _load_emotion, _paper_history_path, _read_json_safe, _filter_entries
 from .ai_utils import format_dt_second, get_device_context
 from .prompts_system import SYSTEM_ASK, SYSTEM_LOAD
 from utils.log import debug
@@ -30,7 +30,7 @@ def MEMORY_UPDATE_USER_HEADER() -> str:
     """
     用于 update_crystal_memory 的 user prompt 静态头部:
     一次性说清楚时间戳规范 + 输出指令 (避免与 system 重复)。
-    时间戳值 / 当前笔记内容 / 本轮对话 / track 上下文等动态内容
+    时间戳值 / 当前笔记内容 / 本轮对话等动态内容
     由 buildMemoryUpdateUserPrompt 在尾部拼接。
     """
     return (
@@ -110,7 +110,7 @@ def SELF_UPDATE_USER_HEADER() -> str:
     """
     Crystal_self update phase 的 user prompt 静态头部:
     一次性说清楚: 这是在压缩后的旧 self 之上, 融合「刚更新好的 Crystal_memory.md」
-    以及「本轮对话 + 双轨 track」, 输出新的 Crystal_self.md。
+    以及「本轮对话」, 输出新的 Crystal_self.md。
 
     与 memory update 的关键差异: self 多喂一个「更新好的 memory」块 —
     让 LLM 知道 "我对用户已经形成了哪些认知", 这会反向影响 Crystal 的自我定位。
@@ -161,20 +161,21 @@ def buildSelfUpdateUserPrompt(
     user_msg: str,
     assistant_msg: str,
     current_timestamp: str = "",
-    ask_track: list[dict] | None = None,
-    load_track: list[dict] | None = None,
 ) -> str:
     """
     构造 self update phase 的 user prompt:
       - 静态头部: SELF_UPDATE_USER_HEADER
-      - 动态块: 压缩后的旧 self + 刚更新好的 memory + 双轨 track + 本轮对话 + 时间戳
+      - 动态块: 压缩后的旧 self + 刚更新好的 memory + 本轮对话 + 时间戳
 
     与 memory update 的差异 (按你定的规则):
       ① **加载旧的 Crystal_self.md** (compressed_self) 作为基础
       ② **额外加载更新过的 Crystal_memory.md** 作为外部参照
       ③ 不向 update memory 的 prompt 中加载 self (那边始终不传 self)
 
-    ask_track / load_track: 当前触发 fp 窗口内的轨迹, 与 memory update 同源同源过
+    【v7 删除】原 ask_track / load_track 参数已移除 —— 全局 track 子系统废弃,
+    改由 state["paper_ask_history"] / state["paper_load_history"] 在
+    compose_messages_node 阶段直接喂给 LLM messages, 这里是 update prompt
+    (独立 LLM 调用), 不再注入历史对话。
     """
     timestamp_section = ""
     if current_timestamp:
@@ -196,30 +197,6 @@ def buildSelfUpdateUserPrompt(
         + (updated_memory_md if updated_memory_md else "(空)\n")
     )
 
-    # ── 当前窗口内的 ask 轨迹 ──
-    ask_section = ""
-    if ask_track:
-        lines = ["【当前论文最近 Ask 轨迹 (按时间倒序)】"]
-        for entry in ask_track:
-            ts_str = entry.get("ts_str", "")
-            user = entry.get("user", "")
-            asst = entry.get("assistant", "")
-            lines.append(f"- [{ts_str}] 用户: {user}")
-            lines.append(f"  Crystal: {asst}")
-        ask_section = "\n" + "\n".join(lines) + "\n"
-
-    # ── 当前窗口内的 load 轨迹 ──
-    load_section = ""
-    if load_track:
-        lines = ["【当前论文最近 Load 轨迹 (按时间倒序)】"]
-        for entry in load_track:
-            ts_str = entry.get("ts_str", "")
-            chosen = entry.get("chosen_text", "")
-            asst = entry.get("assistant", "")
-            lines.append(f"- [{ts_str}] 选区: {chosen}")
-            lines.append(f"  Crystal: {asst}")
-        load_section = "\n" + "\n".join(lines) + "\n"
-
     this_turn_block = (
         "【本次用户和你核心的对话内容】\n"
         f"用户: {user_msg}\n"
@@ -232,8 +209,6 @@ def buildSelfUpdateUserPrompt(
         + self_block
         + "\n\n"
         + memory_block
-        + ask_section
-        + load_section
         + this_turn_block
         + timestamp_section
     )
@@ -244,17 +219,16 @@ def buildMemoryUpdateUserPrompt(
     user_msg: str,
     assistant_msg: str,
     current_timestamp: str = "",
-    ask_track: list[dict] | None = None,
-    load_track: list[dict] | None = None,
 ) -> str:
     """
     构造 update_crystal_memory 的 user prompt:
       - 静态头部: MEMORY_UPDATE_USER_HEADER (含时间戳规则 + 输出指令)
-      - 动态块: 当前笔记 + 双轨 track (ask + load) + 本轮对话 + 更新时间戳
+      - 动态块: 当前笔记 + 本轮对话 + 更新时间戳
 
-    ask_track / load_track: 当前触发 fp 窗口内的轨迹 (已在调用方按 pdf_fp 过滤 + 截尾)。
-        论文场景: 只取当前论文最近 N 条 ask + M 条 load (跨论文 track 已被滤掉)。
-        Chat 场景: 调用方不传, 这里也走空块 (chat 不进 track, memory 不更新)。
+    【v7 删除】原 ask_track / load_track 参数已移除 —— 全局 track 子系统废弃,
+    改由 state["paper_ask_history"] / state["paper_load_history"] 在
+    compose_messages_node 阶段直接喂给 LLM messages, 这里是 update prompt
+    (独立 LLM 调用), 不再注入历史对话。
     """
 
     timestamp_section = ""
@@ -270,30 +244,6 @@ def buildMemoryUpdateUserPrompt(
         + (current_memory_md if current_memory_md else "(空)\n")
     )
 
-    # ── 当前窗口内的 ask 轨迹 ──
-    ask_section = ""
-    if ask_track:
-        lines = ["【当前论文最近 Ask 轨迹 (按时间倒序)】"]
-        for entry in ask_track:
-            ts_str = entry.get("ts_str", "")
-            user = entry.get("user", "")
-            asst = entry.get("assistant", "")
-            lines.append(f"- [{ts_str}] 用户: {user}")
-            lines.append(f"  Crystal: {asst}")
-        ask_section = "\n" + "\n".join(lines) + "\n"
-
-    # ── 当前窗口内的 load 轨迹 ──
-    load_section = ""
-    if load_track:
-        lines = ["【当前论文最近 Load 轨迹 (按时间倒序)】"]
-        for entry in load_track:
-            ts_str = entry.get("ts_str", "")
-            chosen = entry.get("chosen_text", "")
-            asst = entry.get("assistant", "")
-            lines.append(f"- [{ts_str}] 选区: {chosen}")
-            lines.append(f"  Crystal: {asst}")
-        load_section = "\n" + "\n".join(lines) + "\n"
-
     this_turn_block = (
         "【本次用户和你核心的对话内容】\n"
         f"用户: {user_msg}\n"
@@ -304,8 +254,6 @@ def buildMemoryUpdateUserPrompt(
         MEMORY_UPDATE_USER_HEADER()
         + "\n\n"
         + memory_block
-        + ask_section
-        + load_section
         + this_turn_block
         + timestamp_section
     )
@@ -400,10 +348,9 @@ def compose_paper_ask_messages(
     time_context: str,
 ) -> list[dict]:
     """
-    论文侧 Ask 上下文 (按 fp 隔离, 不读全局 track)。
+    论文侧 Ask 上下文 (按 fp 隔离)。
     ask_history / load_history 已由 load_paper_history_node 装入 state,
-    这里不重复读盘。论文 fp 上下文不再注入全局 track (与 chat 路径分离,
-    详见 compose_chat_messages)。
+    这里不重复读盘。论文 fp 上下文与 chat 路径分离 (详见 compose_chat_messages)。
     """
     messages: list[dict] = [
         {"role": "system", "content": SYSTEM_ASK(time_context, agent_mem)},
@@ -427,7 +374,7 @@ def compose_chat_messages(
     """
     ChatView 上下文 (脱离具体论文), 全量注入三份档案 + emotion:
       [system]  CrystalPersona + time + device + agent_mem(U) + agent_self(S)
-                + agent_explore(A) + 全局闲聊提示 + 论文 track 摘要 + emotion(C)
+                + agent_explore(A) + 全局闲聊提示 + [近期对话感知](chat audit) + emotion(C)
       [user/assistant × CHAT_LOCAL_LIMIT 对]  ChatView 本地历史
       [user]  本轮提问
 
@@ -437,17 +384,18 @@ def compose_chat_messages(
       U = agent_mem    — 关于他的认知 (不含约定, 已迁至 A)
       S = agent_self   — Crystal 对自己的认知
 
-    论文 track (ask+load) 由 _get_track 读出, 因为 _append_track 已经过滤了 chat fp,
-    所以 track 里只含论文场景的记录, 正好对应 ChatView "提示 Crystal 全局而言
-    和用户聊过什么" 的诉求。
+    近期对话感知: build_chat_audit_block 从 save/crystal_chat_ai.json 取
+    最近 CHAT_AUDIT_LIMIT 条, 直接呈现"用户/Crystal主动/Crystal回复"
+    三类 label 的对话流, 让 Crystal 看清"我与他的近期接触是怎样的"。
 
     agent_self (Crystal_self.md 全文): chat 侧**全量注入**。
     chat 是人格主场 —— 闲聊本来就该有连续性, 让 Crystal 记得"我是谁、我怎么说话、
     我在乎什么" 才能维持persona 一致。与论文侧相反: SYSTEM_ASK 论文分支 /
     SYSTEM_LOAD 都不带 self, 因为客观学术问答不需要 (也不该有) 哲学化自我叙述。
     """
-    # 1) 摘要化论文全局 track (避免破坏 user/assistant 交替, 用文本块)
-    track_summary = build_track_summary_block()
+    # 1) chat 路径的"近期对话感知"直接读 save/crystal_chat_ai.json
+    #    (取最近 CHAT_AUDIT_LIMIT 条), 数据不依赖任何 track 子系统。
+    chat_audit = build_chat_audit_block()
 
     # 2) 设备感知上下文 (前端传入 device 字段)
     device = getattr(req, "device", None) or None
@@ -472,12 +420,15 @@ def compose_chat_messages(
               "它同样不代表你认同其中每一条 —— 若某条与当下的真实感受冲突, "
               "以当下的感受为准。)"
         )
-    # agent_explore 当前未消费 —— explore.md 注入逻辑将在
+    # agent_explore 当前未消费 —— Crystal_explore.md 注入逻辑将在
     # 后续 ai_active 重写 explore 处理时一并重建, 这里保留入参占位。
-    if track_summary:
+
+    # 【v6 重构】chat 侧注入 [近期对话感知], 直接读 save/crystal_chat_ai.json
+    # (CHAT_AUDIT_LIMIT 条), 不依赖任何 track 子系统。
+    if chat_audit:
         system_content += (
-            "\n\n【全局上下文感知】\n"
-            + track_summary
+            "\n\n【近期对话内容感知, 用于参考、摘录、查询、区分角色、计算时间等】\n"
+            + chat_audit
         )
     if emotion_context:
         system_content += "\n\n" + emotion_context
@@ -490,59 +441,70 @@ def compose_chat_messages(
     return messages
 
 
-def build_track_summary_block() -> str:
-    """
-    把 Crystal_track_ask 和 Crystal_track_load 拼成一段摘要文本, 注入 ChatView system。
-    因为 track 已经按 MAX_ASK_TRACK / MAX_LOAD_TRACK 上限截取,
-    这里不需要再截断。chosen_text 在 _append_track 里已经被 [:200] 截断。
-    """
-    ask_track = _get_track("ask") or []
-    load_track = _get_track("load") or []
+# ═══════════════════════════════════════════════════════════════════════
+# Chat 路径专属: 近期对话感知 (直接读 save/crystal_chat_ai.json)
+# ═══════════════════════════════════════════════════════════════════════
 
-    if not ask_track and not load_track:
+def build_chat_audit_block(max_entries: int = CHAT_AUDIT_LIMIT) -> str:
+    """
+    ChatView 专属的 "近期对话感知" 块, 数据源: save/crystal_chat_ai.json
+    (chat 本地缓存, 与 track 子系统解耦)。
+
+    字段语义:
+      · ReqAsk       →  "[<ts_str> 用户说]" + 用户内容
+      · ResAsk active=False (主答)  →  "[<ts_str> Crystal回复说]" + 内容
+      · ResAsk active=True  (主动追问) → "[<ts_str> Crystal主动说]" + 内容
+                          (无配对 user, 主动开口本身就是完整事件)
+
+    "谁/是否主动说" 三维标注:
+      · 谁:  user / Crystal  (两条独立 label)
+      · 是否主动: 仅对 Crystal 区分 (Crystal回复说 / Crystal主动说)
+      · 时间:  ts_str 直接放 label 内。
+
+    Args:
+        max_entries: 最多取多少条 entry (ReqAsk+ResAsk 合并计数);
+                     默认 CHAT_AUDIT_LIMIT (=20), 改一处全表生效。
+
+    Returns:
+        形如:
+        - [<ts> 用户说]
+          <user>
+          [<ts> Crystal回复说]
+          <asst>
+          [<ts> Crystal主动说]
+          <asst>
+        ...
+        或空串 (文件不存在 / 解析失败 / 无 entries)。
+    """
+    # 1) 读 CHAT_FP 的本地缓存
+    path = _paper_history_path(CHAT_FP)
+    data = _read_json_safe(path, [])
+    if not isinstance(data, list) or not data:
         return ""
 
+    # 2) 复用统一过滤 (屏蔽 Anno / Vision Ask), 保留 ReqAsk + ResAsk
+    filtered = _filter_entries(data, {"ReqAsk", "ResAsk"})
+    if not filtered:
+        return ""
+
+    # 3) 取最近 max_entries 条 (时间正序 → 最新一条在末尾)
+    tail = filtered[-max_entries:]
+
+    # 4) 按 entry 类型渲染, label 带时间戳 + 谁/是否主动
     lines: list[str] = []
+    for e in tail:
+        et = e.get("type", "")
+        ts = e.get("dt", "") or ""
+        content = (e.get("content") or "")[:200]
 
-    if ask_track:
-        lines.append(f"【近期对话感知】")
-        for e in ask_track:
-            ts = e.get("ts_str", "")
-            user = e.get("user", "")
-            asst = e.get("assistant", "")
-            # 【v3 全局化】chat 也进 track 后, 需要区分语境: 论文对话 vs 闲聊对话,
-            # 让 LLM 知道"这段记忆发生在什么场景下"。论文 fp 在 _append_track 时
-            # 写入, chat fp 同理, 缺省 fallback "chat"。
-            pdf_fp = e.get("pdf_fp", "")
-            if pdf_fp == CHAT_FP:
-                scene = "闲聊"
-            elif pdf_fp:
-                scene = f"论文:{pdf_fp[:8]}"
-            else:
-                scene = "未知场景"
-            lines.append(f"- [{ts} {scene} 用户说]\n  {user}")
-            if asst:
-                # 关键区分: 主动开口 vs 回复。新字段是 entry.active
-                # (旧命名字段已物理清理, 只有 ai_active
-                # 落盘的追问 ResAsk 会写 active=True)。保留这个标签让
-                # LLM 能区分"我主动找他"和"他找我我应答" —— 而这两者
-                # 对他的打扰程度天差地别, 是节奏规律/分寸归纳的核心依据。
-                # 【v4 时间戳一致】label 前也带 [ts], 与上面"用户说"对齐,
-                # 让 LLM 一眼看到"这是哪个时点我说的", 方便它读时间序列。
-                label = "Crystal主动说" if e.get("active") else "Crystal回复说"
-                lines.append(f"  [{ts} {label}]\n  {asst}")
-
-    if load_track:
-        lines.append("")
-        lines.append(f"【近期用户论文阅读感知】")
-        for e in load_track:
-            ts = e.get("ts_str", "")
-            chosen = e.get("chosen_text", "")
-            asst = e.get("assistant", "")
-            lines.append(f"- [{ts} 选段]\n  {chosen}")
-            if asst:
-                # 同样的"label 带 ts"统一, [总结] 之前也带上 ts, 风格与 ask track 一致。
-                lines.append(f"  [{ts} 总结]\n  {asst}")
+        if et == "ReqAsk":
+            lines.append(f"- [{ts} 用户说]\n  {content}")
+        elif et == "ResAsk":
+            # 关键区分: active=True 是 Crystal 主动追问 (layer1 触发),
+            # active=False/缺失是 Crystal 回复用户。
+            label = "Crystal主动说" if e.get("active") else "Crystal回复说"
+            lines.append(f"  [{ts} {label}]\n  {content}")
+        # 其他 type 在 _filter_entries 后已不会再出现
 
     return "\n".join(lines)
 

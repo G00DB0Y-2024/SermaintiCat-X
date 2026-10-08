@@ -2,7 +2,7 @@
 ai_active.py — Crystal 主动发言机制 (本期只实现 Layer1 短期追问)。
 
 挂载位置 (LangGraph):
-  emotion_llm -> active_layer1 -> flush_track
+  emotion_llm -> active_layer1 -> END
 
 【重要约束】所有主动功能 (Layer1 / 未来的 Layer2 / Layer3) **只服务于 chat**
 (pdf_fp == CHAT_FP = "crystal_chat")。论文侧不触发任何主动逻辑。
@@ -15,11 +15,11 @@ ai_active.py — Crystal 主动发言机制 (本期只实现 Layer1 短期追问
   · layer1_node / _run_layer1_pipeline 入口都检 `pdf_fp != CHAT_FP → return`
   · on_user_msg (WS 上行) 入口同样 guard
   · 未来加 layer2 / layer3 节点 → 必须先调 _assert_chat_fp(pdf_fp) 显式拒论文
-  · 主动行为产生的一切落盘 (active_resask / plans.json / explore.md update)
+  · 主动行为产生的一切落盘 (active_resask / plans.json / Crystal_explore.md update)
     都通过 _assert_chat_fp 二次校验, 防漏 guard
 
 设计核心 (来自 plan §0):
-  · E = explore.md 全文 (LLM 自由管理, 无段落约束)
+  · E = Crystal_explore.md 全文 (LLM 自由管理, 无段落约束)
   · C = chat_local_limit 内近期对话窗口 (load_chat_messages 返回 OpenAI messages,
         content 头部嵌 [<ts> 用户说/Crystal主动说/Crystal回复] label)
   · U = Crystal_memory.md 头部
@@ -158,122 +158,65 @@ async def _call_lint_llm(prompt: str) -> str | None:
 # ═══════════════════════════════════════════════════════════════════════
 
 
-def _build_layer1_system(req: AiAskReq, mr_text: str) -> str:
-    """
-    Layer1 ECUS 提示词 (system 段)。
-
-    拼接 E + C (运行时再 extend) + U + S + 上下文强调 (本轮 MR)。
-    """
-    explore = _get_agent_explore()
-    memory = _get_agent_memory()[:1500]   # memory 截断
-    self_md = _get_agent_self()[:500]     # self 截断
-
-    return f"""# 角色
-你是 Crystal 的人格 (S 段)。你在评估「本轮 main reply (MR) 之后, 是否要主动追问用户」。
-
-# S — Crystal 自我认知
-{self_md}
-
-# U — 关于用户的认知
-{memory}
-
-# E — 主动外呼档案 (explore.md)
-以下是关于用户**时间相关认知**的档案 (活跃时段 / 沉默含义 / 回应速度习惯等)。
-这是你判断"是否要追问"以及"追多紧"的关键依据。
-{explore if explore else "(空 — 暂无档案)"}
-
-# 本轮 MR 上下文
-{mr_text[:1500]}
-
-# 任务: 评估是否要主动追问
-如果用户在 MR 之后沉默, 你是否会想再问一句?
-返回 **严格 JSON** (无 markdown fence):
-{{
-  "should_followup": true|false,
-  "reason": "简述, ≤30 字",
-  "predict_window_sec": int,      // 软预测: 用户大概多久会回 (秒), 30~600
-  "predict_reply_length": "短"|"中"|"长"
-}}
-"""
-
-
-def _build_layer1_compose_user(judge: dict) -> str:
-    """追问构造 user 段: 给 main LLM 的方向提示。"""
-    return f"""# 任务: 写一句主动追问
-基于上面 S/U/E 档案 + 本轮 MR 上下文, 写一句**口语化、简短**的追问。
-要求:
-  - 长度 ≤ 50 字
-  - 延续 MR 的语气, 不要重新开话题
-  - 不要复述 MR 已经说过的内容
-  - 留出用户回应的空间 (开放/收口皆可)
-
-Lint 裁判理由: {judge.get("reason", "")}
-预测回复长度: {judge.get("predict_reply_length", "短")}
-
-返回 **严格 JSON** (无 markdown fence):
-{{
-  "content": "追问正文, ≤50 字",
-  "predict_reply": "预测用户会怎么回 (≤30 字)",
-  "predict_window_sec": {judge.get("predict_window_sec", 60)}
-}}
-"""
-
-
 # ═══════════════════════════════════════════════════════════════════════
 # Split 节点 — MR 末尾隐含追问拆解 (v2 改造)
 # ═══════════════════════════════════════════════════════════════════════
 def _build_split_prompt(mr_text: str) -> str:
     """
-    Split lint prompt: 带有高门槛拦截的语义解耦，将其重构为「main_body」+ 「content」。
+    Split lint prompt: 带有高门槛拦截的【无损】语义解耦，重构为「main_body」+ 「content」。
     
-    【V5 核心升级】
-    大幅收紧 should_split 的触发条件。明确界定：纯提问、过短的句子、修辞问句、客套话，均不可拆分。
-    只有当 MR 存在明显的“长篇幅铺垫/分享” + “独立的追问空间”时，才进行解耦。
+    【V6 核心升级】
+    针对“长文本细节丢失”问题，将逻辑从“提纯重构”升级为“无损剥离”。
+    强制要求大模型：main_body 绝不能是原文本的摘要或压缩！原 MR 的所有排版（换行、列表）、
+    具体举例、引言细节必须 100% 完整保留，只允许把最后的“追问”剥离出来。
     """
     return f"""# 任务
 你是 Crystal 的对话节奏与语义分析专家。真实人类聊天时，有时会先发一段「情绪/事实分享」，紧接着再发一条短消息进行「提问/互动」。
-请分析以下 Crystal 准备发送的消息（MR），判断是否**值得**进行拆分。
-如果符合拆分门槛，请对其进行**语义解耦与重构**。
+请分析以下 Crystal 准备发送的消息（MR），判断是否值得进行拆分。
+如果符合拆分门槛，请对其进行**无损语义解耦**。
 
-# 【触发门槛：什么时候绝对不要拆 (should_split=false)？】
+# 🚫【触发门槛：什么时候绝对不要拆 (should_split=false)？】
 如果出现以下任何一种情况，必须保持原文，不作拆分：
-1. **全句即问题**：整个 MR 本质上就是一句直接的提问（如“你今晚打算吃什么？”、“那你周末有啥安排？”），没有明显的前置铺垫。若强拆会导致 `main_body` 变成无意义的废话。
-2. **篇幅过短且紧密**：原 MR 是短平快的一句话（例如“这个想法挺棒的，你觉得呢？”、“辛苦啦，早点休息好吗？”），拆成两条反而显得卡顿、像机器人。
-3. **自问自答 / 修辞问句**：例如“你知道为什么吗？其实是因为……”、“谁说不是呢？”，这类问句并非期待用户回答，不可拆。
+1. **全句即问题**：整个 MR 本质上就是一句直接的提问（如“那你周末有啥安排？”），无明显前置铺垫。
+2. **篇幅过短且紧密**：短平快的一句话（如“这个想法挺棒的，你觉得呢？”），拆成两条显得卡顿。
+3. **自问自答 / 修辞问句**：如“你知道为什么吗？其实是因为……”，并非期待用户回答，不可拆。
 4. **纯陈述 / 客套道别**：只是单纯的情绪分享、早晚安祝福，没有任何实质性抛给用户的互动话题。
 
-# 【语义解耦与重构原则（仅在 should_split=true 时严格遵守）】
-1. **语义提纯，分类装载**：
-   - `main_body` 只保留：情绪分享、事实陈述。收口必须自然（陈述句/感叹句），不要用逗号或连接词断尾。
-   - `content` 只保留：抛出的话题、询问、行动建议。
-2. **信息绝对互斥（消灭重复）**：
-   - 两段话是连续发送的，上下文共享。如果 `main_body` 已提及某个名词，`content` 只能用代词或省略，绝对不可重复（如 Main:"新开的火锅店不错~" Content:"明天去尝尝吗？" 而不是"明天去吃火锅店吗"）。
-3. **意图同源（严禁发散跑题）**：
-   - `content` 必须且只能从原 MR 的已有互动意图里提取，**严禁捏造原文没有暗示的新问题**。
-4. **保留人设语气**：
-   - 提取重组后，必须保留 Crystal 原本的语气（温柔/俏皮/心疼等）。
+# ✂️【无损解耦原则（仅在 should_split=true 时严格遵守）】
+1. **【细节绝对保真（严禁摘要/缩写）】**（最重要！）：
+   - `main_body` 绝不是对原句的概括！原 MR 中的所有排版（换行、列表）、引述的细节、具体举例、前因后果，必须 **100% 完整保留**。
+   - 你的工作是“剥离”那句追问，而不是“压缩”原文。绝不能因为某段话看起来“不核心”就删掉它。
+2. **分类装载，收口自然**：
+   - 剥离追问后，`main_body` 剩下的内容收口必须自然（改为陈述句/感叹句），不要用逗号或连接词断尾。
+   - `content` 只装载抛出的话题、询问、行动建议。
+3. **信息互斥（消灭重复）**：
+   - 如果 `main_body` 已提及某个名词，`content` 只能用代词或省略，绝对不可重复（如 Main:"新开的火锅店不错~" Content:"明天去尝尝吗？" 而不是"明天去吃火锅店吗"）。
+4. **意图同源（严禁发散跑题）**：
+   - `content` 必须只能从原 MR 的已有互动意图里提取，严禁捏造原文没有暗示的新问题。
 
-# 判例参考（认真学习判定标准）
+# 💡 判例参考（认真学习如何做到“无损保真”）
 
 [判例 1：信息密度足够，包含两层独立语义 —— 拆！]
 原 MR = "我这几天加班真的是累死了，好想放松一下，你周末想去哪玩呀？"
-→ 应该 should_split=true
+→ should_split=true
   main_body="我这几天加班真的是累死了，好想放松一下~"
   content="你周末想去哪玩呀？" 
 
 [判例 2：篇幅过短，浑然一体 —— 不拆！]
 原 MR = "这件衣服挺好看的，你觉得呢？"
-→ 应该 should_split=false (太短了，拆成两条会显得极度生硬卡顿)
+→ should_split=false (拆成两条会显得极度生硬卡顿)
 
-[判例 3：全句即问题，无实质铺垫 —— 不拆！]
-原 MR = "那你今晚打算去吃什么好吃的呀？"
-→ 应该 should_split=false (如果强拆，main_body 会无话可说)
+[判例 3：长文本带排版与细节，严禁丢失内容 —— 拆！且必须保真！]
+原 MR = "我整理了最近的思路，主要有两点：\\n1. 需要优化结构\\n2. 补充遗漏细节\\n看着这些，我心里冒出好多想法。你是又在校验逻辑了吗？"
+→ should_split=true
+  main_body="我整理了最近的思路，主要有两点：\\n1. 需要优化结构\\n2. 补充遗漏细节\\n看着这些，我心里冒出好多想法。" (完美保留列表、换行和所有铺垫细节，不作任何压缩)
+  content="你是又在校验逻辑了吗？"
 
-[判例 4：陈述与互动揉捏，需提纯重构 —— 拆！]
+[判例 4：陈述与互动揉捏，需剥离重构 —— 拆！]
 原 MR = "要不咱们明天去吃新开的那家日料吧，听说很不错，你觉得呢？"
-→ 应该 should_split=true
-  main_body="听说新开的那家日料很不错~" (提纯事实，收口自然)
-  content="咱们明天去尝尝，你觉得怎么样？" (提纯互动，使用代词避免重复“日料”)
+→ should_split=true
+  main_body="听说新开的那家日料很不错~" (剥离事实，收口自然)
+  content="咱们明天去尝尝，你觉得怎么样？" (剥离互动，使用代词避免重复)
 
 # 本轮 MR 全文
 {mr_text}
@@ -281,14 +224,13 @@ def _build_split_prompt(mr_text: str) -> str:
 # 严格 JSON 输出 (无 markdown fence):
 {{
   "should_split": true|false,
-  "main_body": "若不拆则返原文；若拆，则是提纯后的情绪/事实主体",
+  "main_body": "若不拆则返原文；若拆，则是剥离追问后的原文主体（必须 100% 保留原文的列表、换行和所有细节，严禁压缩！）",
   "content": "若不拆则为空串；若拆，则是提纯出的独立追问（≤30字，不重复主体信息，严禁跑题）",
   "predict_reply": "预测用户会怎么回 (≤30字，若无追问则空)",
   "predict_window_sec": int,  // 软预测: 用户大概多久会回 (秒), 30~600
   "reason": "≤40字，说明触发拆分或不拆的具体理由"
 }}
 """
-
 
 async def _split_followup(mr_text: str) -> dict | None:
     """
@@ -439,7 +381,7 @@ def _assert_chat_fp(pdf_fp: str, caller: str) -> bool:
 def _snapshot_state_for_layer1(state: dict) -> dict:
     """
     复制 layer1 真正用到的字段, 避免后台 task 持有 state 引用读到
-    LangGraph 后续节点改写后的 state (save_paper_memory / emotion_llm / flush_track
+    LangGraph 后续节点改写后的 state (save_paper_memory / emotion_llm
     都可能改 messages / final_answer)。
 
     【新增】包含 split_followup 字段, 若 split_followup_node 已拆出, layer1 走
@@ -538,58 +480,14 @@ async def _parse_json_lenient(raw: str) -> dict | None:
         return None
 
 
-async def _judge_followup(ecus_system: str) -> dict | None:
-    """二元裁判: 是否追问。失败/缺配置 → 跳过 (return None)。"""
-    raw = await _call_lint_llm(ecus_system)
-    if not raw:
-        return None
-    try:
-        judge = await _parse_json_lenient(raw)
-        if judge is None or "should_followup" not in judge:
-            debug(f"[ai_active] judge parse fail: missing should_followup  raw={raw[:80]!r}")
-            return None
-        return {
-            "should_followup": bool(judge["should_followup"]),
-            "reason": str(judge.get("reason", ""))[:80],
-            "predict_window_sec": int(judge.get("predict_window_sec", 60)),
-            "predict_reply_length": str(judge.get("predict_reply_length", "短")),
-        }
-    except (ValueError, TypeError) as e:
-        debug(f"[ai_active] judge parse fail: {e}  raw={raw[:80]!r}")
-        return None
-
-
-async def _compose_followup(system: str, user: str) -> dict | None:
-    """Main LLM 构造追问正文。失败/缺配置 → 跳过。"""
-    raw = await _call_lint_llm(system + "\n\n" + user)
-    if not raw:
-        return None
-    try:
-        out = await _parse_json_lenient(raw)
-        if out is None:
-            debug(f"[ai_active] compose parse fail: not valid JSON  raw={raw[:80]!r}")
-            return None
-        content = str(out.get("content", "")).strip()
-        if not content:
-            return None
-        return {
-            "content": content[:200],
-            "predict_reply": str(out.get("predict_reply", ""))[:80],
-            "predict_window_sec": int(out.get("predict_window_sec", 60)),
-        }
-    except (ValueError, TypeError) as e:
-        debug(f"[ai_active] compose parse fail: {e}  raw={raw[:80]!r}")
-        return None
-
-
 async def _run_layer1_pipeline(snapshot: dict) -> None:
     """
     真正的 layer1 流程。**异步** 在 sync state 调用返回之后跑。
 
     【chat-only 约束】论文侧 (_assert_chat_fp=False) 直接 return, 不调 LLM。
 
-    【v2 split 优先】若 split_followup_node 已拆出 followup, 走 split 路径
-    (直接落盘 + WS push), 跳过 judge + compose, 避免重复追问。
+    【v2 split-only】仅依赖 split_followup_node 的拆解结果; 无兜底分支,
+    若 split 未拆出, layer1 整体空跑。
 
     异常一律静默吞掉 (不影响主回复), debug 打印。
     """
@@ -601,8 +499,8 @@ async def _run_layer1_pipeline(snapshot: dict) -> None:
         return  # 论文侧 — layer1 不服务
 
     try:
-        # ═══ 路径 A: split 优先 (v2 改造) ═══
-        # split_followup_node 在 llm_call 后同步拆出, 若拆出, 直接落盘跳过 judge/compose
+# ═══ split 唯一路径 (v2 改造) ═══
+        # split_followup_node 在 llm_call 后同步拆出, 若拆出, 直接落盘跳过
         split_fu = snapshot.get("split_followup")
         if split_fu and isinstance(split_fu, dict) and split_fu.get("content"):
             await _emit_followup(
@@ -613,33 +511,7 @@ async def _run_layer1_pipeline(snapshot: dict) -> None:
                 intent=split_fu.get("intent", "[split]"),
                 source="split",
             )
-            return  # 拆出 → 整体跳过, 不走原 judge+compose 兜底
-
-        # ═══ 路径 B: 兜底 (split 未拆出, 走原 judge + compose 路径) ═══
-        mr_text = snapshot.get("final_answer", "") or ""
-        system = _build_layer1_system(req, mr_text)
-
-        # 1. 二元裁判
-        judge = await _judge_followup(system)
-        if judge is None or not judge["should_followup"]:
-            debug(f"[layer1] skip: judge=no fp={fp[:12]}")
-            return
-
-        # 2. 构造追问
-        compose_user = _build_layer1_compose_user(judge)
-        followup = await _compose_followup(system, compose_user)
-        if followup is None:
-            debug(f"[layer1] skip: compose fail fp={fp[:12]}")
-            return
-
-        await _emit_followup(
-            fp=fp,
-            content=followup["content"],
-            predict_reply=followup.get("predict_reply", ""),
-            predict_window_sec=followup.get("predict_window_sec", 60),
-            intent=judge.get("reason", ""),
-            source="compose",
-        )
+        return  # 拆出 / 未拆出: 兜底已删除, 层主不做空问
     except Exception as e:
         debug(f"[layer1] pipeline error (swallowed): fp={fp[:12]} {type(e).__name__}: {e}")
 
@@ -850,13 +722,13 @@ Crystal 预测用户会回: {pending.predict_reply_text!r}
 
 async def _schedule_explore_update_async() -> None:
     """
-    触发 explore.md 重写。
+    触发 Crystal_explore.md 重写。
 
     与 _call_memory_update_llm 共享 _memory_updating 互斥锁 + MEMORY_UPDATE_EVERY_N
     计数 (此处简化: 不去争用 memory 互斥, 单独跑 — explore 重写是独立契约)。
 
-    输入: explore.md 全文 + _learn_batch 内的 hit/miss/late 样本
-    输出: LLM 重写整份 explore.md → _write_agent_explore
+    输入: Crystal_explore.md 全文 + _learn_batch 内的 hit/miss/late 样本
+    输出: LLM 重写整份 Crystal_explore.md → _write_agent_explore
     """
     with _LEARN_LOCK:
         if not _learn_batch:
@@ -876,8 +748,8 @@ async def _schedule_explore_update_async() -> None:
         for s in batch[-10:]  # 最近 10 条
     )
 
-    prompt = f"""# 任务: 重写 explore.md
-explore.md 是关于**用户时间相关认知**的档案, 只写:
+    prompt = f"""# 任务: 重写 Crystal_explore.md
+Crystal_explore.md 是关于**用户时间相关认知**的档案, 只写:
   - 活跃时段 (他通常什么时候活跃)
   - 沉默含义 (他不回 = 在忙 / 不想聊 / 没看到?)
   - 回应速度习惯 (他通常多久会回, 早回/晚回有没有规律)
@@ -888,15 +760,15 @@ explore.md 是关于**用户时间相关认知**的档案, 只写:
   - 单一问答过程 / 具体消息内容 / 用户偏好细节 (那些归 Crystal_memory)
   - 不要保留任何旧章节约束 (固定的三段标题已经废止)
 
-# 当前 explore.md
+# 当前 Crystal_explore.md
 {explore if explore else "(空 — 这是首次写入)"}
 
 # 新增样本 (本批)
 {samples_text}
 
 # 输出
-重写**整份** explore.md, Markdown 格式。返回**严格 JSON**:
-{{"content": "重写后的 explore.md 全文"}}
+重写**整份** Crystal_explore.md, Markdown 格式。返回**严格 JSON**:
+{{"content": "重写后的 Crystal_explore.md 全文"}}
 """
     raw = await _call_lint_llm(prompt)
     if not raw:
