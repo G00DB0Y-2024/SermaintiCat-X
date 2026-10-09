@@ -48,6 +48,7 @@ async def _call_llm(
     disable_thinking: bool = True,
     *,
     emotion_config: dict | None = None,
+    json_mode: bool = False,
 ) -> tuple[str, dict]:
     """
     直接调上游 LLM, 配置从 ai_config 读取 (或 emotion_config 覆盖)。
@@ -70,6 +71,16 @@ async def _call_llm(
       默认全局基线 effort="none" 也作为兜底 — 即便 model 默认行为是开 reasoning,
       全局这一条也能压下去。
 
+    json_mode:
+      True 时在 request_body 里加 "response_format": {"type": "json_object"},
+      让 LLM 走 OpenAI 兼容的 json 模式 (DeepSeek / aihubmix / Gemini 兼容层都支持)。
+      用于结构化输出 (如 memory_and_self 合并 update 的 JSON {updated_memory,
+      updated_self}), 显著降低解析失败率。
+
+      注意: json_mode 不会自动重试; 解析失败由调用方决定是否 fallback。
+      弱模型 (gemini flash) 在 json_object 下偶发空字符串, 调用方
+      _safe_parse_update_json 已有兜底, 这里不重复处理。
+
     返回: (content, usage)
       - content: LLM 回复正文; 解析失败时回落到完整 JSON dump
       - usage  : 上游 LLM usage 统计 (可能为空 dict)
@@ -91,6 +102,10 @@ async def _call_llm(
 
     request_body: dict = {"model": model, "messages": messages}
 
+    if json_mode:
+        # OpenAI 兼容的 json_object 模式 (DeepSeek / aihubmix / Gemini 兼容层都支持)。
+        # 强制 LLM 输出合法 JSON 对象, 大幅降低后端解析失败率。
+        request_body["response_format"] = {"type": "json_object"}
 
     if is_ds and not vision_model and not disable_thinking:
         # ask 路径 + 用户主动开了 thinking → 启用思考,顺便给个 high 强度兜底

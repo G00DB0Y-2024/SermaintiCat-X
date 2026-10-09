@@ -51,16 +51,15 @@ from .ai_llm import _call_llm
 from .ai_models import AiAskReq, AiLoadReq
 from .ai_utils import now_ms, format_dt_second
 from .prompts_context import (
-    buildMemoryCompressUserPrompt,
     buildMemoryUpdateUserPrompt,
-    buildSelfCompressUserPrompt,
     buildSelfUpdateUserPrompt,
+    buildMemoryAndSelfUpdateUserPrompt,
+    build_chat_audit_block,
 )
 from .prompts_system import (
-    MEMORY_COMPRESS_SYSTEM,
     MEMORY_UPDATE_SYSTEM,
-    SELF_COMPRESS_SYSTEM,
     SELF_UPDATE_SYSTEM,
+    MEMORY_AND_SELF_UPDATE_SYSTEM,
     SYSTEM_LOAD,
 )
 from .ai_utils import get_current_time_context
@@ -513,34 +512,38 @@ async def _update_crystal_memory_async(
 ) -> None:
     """
     后台任务: 读 Crystal_memory.md 与 Crystal_self.md, 加上本轮对话,
-    喂 LLM 后写回两份笔记。
+    一次 LLM 调用同时更新两份笔记 (updated_memory + updated_self), 写回磁盘。
 
-    ════ Pipeline (按用户设计) ════
-      Phase 1:  compress (memory + self)  (LLM × 2, 并发 asyncio.gather)
-      Phase 2a: Crystal_memory update      (LLM #3) — 基础:compressed_mem,
-                                             上下文: 当前对话
-                                             ⚠️ 不加载 Crystal_self
-      Phase 2b: Crystal_self   update      (LLM #4) — 基础:compressed_self,
-                                             上下文: 更新过的 new_mem + 当前对话
+    ════ Pipeline (2026-10-09 合并版) ════
+      Phase 2 merged: 一次 LLM 调用 → JSON {updated_memory, updated_self}
+        基础:    current_mem + current_self (两份 md 全文)
+        上下文:  本轮对话 + chat_audit + 当前时间戳
+        输出:    JSON, 两个字段均为完整 Markdown
+        强约束:  self 字段不得含禁词 (「他」), 出现则作废走 fallback
+
+      Fallback (合并版解析失败时退化): 两次独立调用 (旧 Phase 2a + 2b)
+        Phase 2a memory: 基础 current_mem, 不加载 self
+        Phase 2b self:   基础 current_self + 刚更新好的 new_mem (作为外部参照)
 
     输入边界规则 (与原有 memory 链路一致):
       · 用户问 Crystal -> system prompt 只注入 Crystal_memory (load_agent_memory_node
         已 _get_agent_memory()), 不注入 Crystal_self。✅
-      · 更新 Crystal_memory -> buildMemoryUpdateUserPrompt 不传 self。✅
-      · 更新 Crystal_self   -> buildSelfUpdateUserPrompt 既加载旧 self,
-                              也加载刚更新好的 memory。✅
+      · 合并 update prompt 一次性注入两份 md 全文, 让 LLM 在 JSON 输出时主动
+        避免串档。✅
+      · 旧的两段独立 update 函数 (buildMemoryUpdateUserPrompt /
+        buildSelfUpdateUserPrompt) 保留作 fallback 路径, 解析失败时调用。✅
 
     并发互斥: 模块级 _memory_updating 标志。
     用户短时间多条消息触发多次 update_agent_memory_node, 互斥后第二次起直接 return 跳过。
     计数已经在调用方递增, 下一轮仍会按 MEMORY_UPDATE_EVERY_N 节流再触发。
 
-    异常隔离: 每个 phase 独立 try/except, 任一失败不影响其余 phase。
+    异常隔离: 合并路径 / fallback 路径各自 try/except, 任一失败不影响主流程。
     失败静默, 不影响用户响应。两份 md 都是锦上添花, 损坏不应阻塞主链路。
 
-    【v7 删除】原 ask_track / load_track 输入已移除, update prompt 上下文
-    仅含"当前 md + 本轮对话 + 时间戳"。近 N 对对话历史已统一在
-    compose_messages_node 阶段通过 state["paper_ask_history"] 喂给主对话 LLM,
-    不再注入到 update prompt (独立 LLM 调用)。
+    原子写: 合并版要求两份 md **要么一起更新, 要么都不动** —
+            避免出现"memory 已写新值, self 失败保留旧值"的中间态
+            (该态会再次污染 self)。先 _write_text_file_atomic 写 memory,
+            再写 self; 任一失败都回滚另一份到旧值 (单步原子)。
     """
     from .ai_io import _ensure_memory_dir
 
@@ -578,145 +581,156 @@ async def _update_crystal_memory_async(
 
 
 
-        # ═══════════════════════════════════════════════════════════════
-        # Phase 1: 并发执行 1a (memory compress) + 1b (self compress)
-        # ═══════════════════════════════════════════════════════════════
-        # 1a 与 1b 完全独立:
-        #   - 读: 各自的 md 文件 (不同路径, 无冲突)
-        #   - 写: 各自的局部变量 (compressed_mem / compressed_self)
-        #   - 共享输入: 仅 current_timestamp (只读)
-        # 因此可以 asyncio.gather 并发, 节省 1 次 LLM 调用的 wall time。
-        #
-        # return_exceptions=True: 任一 LLM 异常不互相波及 (两个 _call_*_compress_llm
-        # 内部已有 try/except 返回 fallback tuple, 这里再保险一道)。
+        # 近期对话感知 (chat_audit): 读 crystal_chat_ai.json 最近 N 条
+        # 非 chat fp 也调, 论文 fp 走同一函数会自然取到空串 (chat json 与 paper json
+        # 是两个独立文件)。chat_audit_block() 已经做了空检测, 这里不再做 fp 判断。
+        chat_audit = build_chat_audit_block()
+        stats["chat_audit_len"] = len(chat_audit)
         debug(
-            f"[crystal_memory] PHASE 1 compress -> LLM [parallel]: "
-            f"mem_in={len(current_mem)} self_in={len(current_self)}"
-        )
-        compress_results = await asyncio.gather(
-            _call_memory_compress_llm(current_mem, current_timestamp),
-            _call_self_compress_llm(current_self, current_timestamp),
-            return_exceptions=True,
-        )
-        # 解构: 任一结果若是 Exception, 走 fallback (原 md + fallback=True)
-        if isinstance(compress_results[0], Exception):
-            debug(
-                f"[crystal_memory] PHASE 1a memory compress RAISED: "
-                f"{type(compress_results[0]).__name__}: {compress_results[0]}"
-            )
-            compressed_mem, mem_compress_fallback = current_mem, True
-        else:
-            compressed_mem, mem_compress_fallback = compress_results[0]
-        if isinstance(compress_results[1], Exception):
-            debug(
-                f"[crystal_memory] PHASE 1b self compress RAISED: "
-                f"{type(compress_results[1]).__name__}: {compress_results[1]}"
-            )
-            compressed_self, self_compress_fallback = current_self, True
-        else:
-            compressed_self, self_compress_fallback = compress_results[1]
-
-        stats["mem_compress_delta"] = len(compressed_mem) - len(current_mem)
-        stats["mem_compress_fallback"] = mem_compress_fallback
-        stats["self_compress_delta"] = len(compressed_self) - len(current_self)
-        stats["self_compress_fallback"] = self_compress_fallback
-        debug(
-            f"[crystal_memory] PHASE 1 compress <- LLM [parallel]: "
-            f"mem=[{len(compressed_mem)}/{stats['mem_compress_delta']:+d}/"
-            f"fb={mem_compress_fallback}] "
-            f"self=[{len(compressed_self)}/{stats['self_compress_delta']:+d}/"
-            f"fb={self_compress_fallback}]"
+            f"[crystal_memory] chat_audit loaded: len={len(chat_audit)}"
         )
 
         # ═══════════════════════════════════════════════════════════════
-        # Phase 2a: Crystal_memory update
-        #   ⚠️ 不加载 Crystal_self (保持 memory 独立, 避免自我认知污染用户认知)
+        # Phase 2 merged: Crystal_memory + Crystal_self 一次性更新 (2026-10-09)
+        #   ⚠️ 一次 LLM 调用, 强制 JSON {updated_memory, updated_self}
+        #   · 失败 → Fallback: 两次独立旧路径 (旧 Phase 2a + 2b)
+        #   · 解析拒绝 (self 含禁词「他」) → 同上 fallback
+        #   · 解析成功 → 原子写: memory + self 同时落盘
         # ═══════════════════════════════════════════════════════════════
         debug(
-            f"[crystal_memory] PHASE 2a memory update -> LLM: "
-            f"input_len={len(compressed_mem)}"
+            f"[crystal_memory] PHASE 2 merged update -> LLM: "
+            f"mem_input_len={len(current_mem)} self_input_len={len(current_self)} "
+            f"audit_len={len(chat_audit)}"
         )
+
+        new_mem: str | None = None
+        new_self: str | None = None
+        merged_ok = False
+
         try:
-            new_mem = await _call_memory_update_llm(
-                compressed_mem,
-                user_msg,
-                assistant_msg,
-                current_timestamp,
+            result = await _call_memory_and_self_update_llm(
+                current_mem, current_self,
+                user_msg, assistant_msg,
+                current_timestamp, chat_audit,
             )
-            stats["mem_update_delta"] = (len(new_mem) - len(compressed_mem)) if new_mem else 0
-            debug(
-                f"[crystal_memory] PHASE 2a memory update <- LLM: "
-                f"output_len={len(new_mem) if new_mem else 0} "
-                f"delta={stats['mem_update_delta']:+d}"
-            )
-        except Exception as e:
-            debug(f"[crystal_memory] PHASE 2a memory update FAIL: {type(e).__name__}: {e}")
-            new_mem = None
-            stats["mem_update_delta"] = 0
-
-        # 立刻写 memory (这样 Phase 2b 才能拿到「刚更新好的 memory」)
-        if new_mem:
-            try:
-                bytes_written = _write_text_file_atomic(CRYSTAL_MEMORY_FILE, new_mem)
-                _set_agent_memory_cache(new_mem)
+            if result is not None:
+                new_mem, new_self = result
+                merged_ok = True
+                stats["merged_delta_mem"]  = len(new_mem)  - len(current_mem)
+                stats["merged_delta_self"] = len(new_self) - len(current_self)
                 debug(
-                    f"[crystal_memory] PHASE 2a WRITE ok: "
-                    f"path={CRYSTAL_MEMORY_FILE} "
-                    f"prev_len={len(current_mem)} new_len={len(new_mem)} "
-                    f"delta={len(new_mem)-len(current_mem):+d} "
-                    f"bytes_written={bytes_written}"
+                    f"[crystal_memory] PHASE 2 merged update <- LLM: "
+                    f"mem_out={len(new_mem)}({stats['merged_delta_mem']:+d}) "
+                    f"self_out={len(new_self)}({stats['merged_delta_self']:+d})"
                 )
-            except OSError as e:
-                debug(f"[crystal_memory] PHASE 2a WRITE FAIL: {type(e).__name__}: {e}")
-        else:
-            debug("[crystal_memory] PHASE 2a WRITE skipped: new_mem 为空, 保留旧 md")
+            else:
+                debug("[crystal_memory] PHASE 2 merged parse FAIL, will fallback")
+        except Exception as e:
+            debug(f"[crystal_memory] PHASE 2 merged CALL FAIL: {type(e).__name__}: {e}")
+
+        # ─────────── Fallback: 旧的两段独立 update ───────────
+        # 仅在合并版失败时跑, 走 buildMemoryUpdateUserPrompt / buildSelfUpdateUserPrompt。
+        # 这一段完全保留 v7 的语义, 不再加载 self 进 memory, memory 加载 self 进 self。
+        if not merged_ok:
+            debug("[crystal_memory] PHASE 2 merged FAIL → fallback to legacy 2a+2b")
+
+            # 旧 Phase 2a: memory update, 不加载 self
+            try:
+                new_mem = await _call_memory_update_llm(
+                    current_mem, user_msg, assistant_msg,
+                    current_timestamp, chat_audit,
+                )
+                stats["mem_update_delta"] = (len(new_mem) - len(current_mem)) if new_mem else 0
+            except Exception as e:
+                debug(f"[crystal_memory] fallback PHASE 2a FAIL: {type(e).__name__}: {e}")
+                new_mem = None
+
+            # 写 memory (这样旧 Phase 2b 才能拿到「刚更新好的 memory」)
+            if new_mem:
+                try:
+                    _write_text_file_atomic(CRYSTAL_MEMORY_FILE, new_mem)
+                    _set_agent_memory_cache(new_mem)
+                    debug(
+                        f"[crystal_memory] fallback PHASE 2a WRITE ok: "
+                        f"new_len={len(new_mem)} delta={len(new_mem)-len(current_mem):+d}"
+                    )
+                except OSError as e:
+                    debug(f"[crystal_memory] fallback PHASE 2a WRITE FAIL: {type(e).__name__}: {e}")
+                    new_mem = None  # 写失败 → 旧 Phase 2b 拿不到新 mem, 走 current_mem
+
+            # 旧 Phase 2b: self update, 加载刚更新好的 mem
+            mem_for_self = new_mem if new_mem else current_mem
+            try:
+                new_self = await _call_self_update_llm(
+                    current_self, mem_for_self,
+                    user_msg, assistant_msg,
+                    current_timestamp, chat_audit,
+                )
+                stats["self_update_delta"] = (len(new_self) - len(current_self)) if new_self else 0
+            except Exception as e:
+                debug(f"[crystal_memory] fallback PHASE 2b FAIL: {type(e).__name__}: {e}")
+                new_self = None
+
+            if new_self:
+                try:
+                    _write_text_file_atomic(CRYSTAL_SELF_FILE, new_self)
+                    _set_agent_self_cache(new_self)
+                    debug(
+                        f"[crystal_memory] fallback PHASE 2b WRITE ok: "
+                        f"new_len={len(new_self)} delta={len(new_self)-len(current_self):+d}"
+                    )
+                except OSError as e:
+                    debug(f"[crystal_memory] fallback PHASE 2b WRITE FAIL: {type(e).__name__}: {e}")
+
+            # 任一失败, 都不污染磁盘: 已经写过的回滚到旧值
+            # (fallback 路径下只有一份成功另一份失败时才走回滚)
+            if not (new_mem and new_self):
+                # 尽力回滚, 但不要二次失败导致无限递归
+                try:
+                    if new_mem and not new_self:
+                        _write_text_file_atomic(CRYSTAL_MEMORY_FILE, current_mem)
+                        _set_agent_memory_cache(current_mem)
+                        debug("[crystal_memory] fallback ROLLBACK memory")
+                    if new_self and not new_mem:
+                        _write_text_file_atomic(CRYSTAL_SELF_FILE, current_self)
+                        _set_agent_self_cache(current_self)
+                        debug("[crystal_memory] fallback ROLLBACK self")
+                except OSError as e:
+                    debug(f"[crystal_memory] fallback ROLLBACK FAIL: {type(e).__name__}: {e}")
+
+            return  # fallback 完成, 跳过下方合并版写盘
 
         # ═══════════════════════════════════════════════════════════════
-        # Phase 2b: Crystal_self update
-        #   加载: compressed_self (基础) + new_mem (刚更新好的, 作为外部参照)
-        #        + 当前对话 + 当前时间戳
+        # 合并版原子写: 两份 md 要么一起更新, 要么都不动
+        #   · 顺序: 先写 memory, 再写 self
+        #   · 任一失败: 把已写的那份回滚到旧值 (保证磁盘上两份是原子的)
         # ═══════════════════════════════════════════════════════════════
-        # 如果 Phase 2a 失败了, 用 compressed_mem 作为参照 — 至少不会因为 memory 翻车
-        # 而导致 self 拿不到任何上下文。
-        mem_for_self = new_mem if new_mem else compressed_mem
-        debug(
-            f"[crystal_memory] PHASE 2b self update -> LLM: "
-            f"self_input_len={len(compressed_self)} mem_ref_len={len(mem_for_self)}"
-        )
+        assert merged_ok and new_mem is not None and new_self is not None
         try:
-            new_self = await _call_self_update_llm(
-                compressed_self,
-                mem_for_self,
-                user_msg,
-                assistant_msg,
-                current_timestamp,
-            )
-            stats["self_update_delta"] = (len(new_self) - len(compressed_self)) if new_self else 0
+            # Step 1: 写 memory
+            _write_text_file_atomic(CRYSTAL_MEMORY_FILE, new_mem)
+            _set_agent_memory_cache(new_mem)
+            # Step 2: 写 self (memory 已落盘, 若此步失败需回滚 memory)
+            _write_text_file_atomic(CRYSTAL_SELF_FILE, new_self)
+            _set_agent_self_cache(new_self)
             debug(
-                f"[crystal_memory] PHASE 2b self update <- LLM: "
-                f"output_len={len(new_self) if new_self else 0} "
-                f"delta={stats['self_update_delta']:+d}"
+                f"[crystal_memory] PHASE 2 merged WRITE ok (atomic): "
+                f"mem {len(current_mem)}→{len(new_mem)} "
+                f"self {len(current_self)}→{len(new_self)}"
             )
-        except Exception as e:
-            debug(f"[crystal_memory] PHASE 2b self update FAIL: {type(e).__name__}: {e}")
-            new_self = None
-            stats["self_update_delta"] = 0
-
-        if new_self:
+        except OSError as e:
+            # 任意一步失败: 尽力回滚, 不让磁盘进入"半新半旧"中间态
+            debug(f"[crystal_memory] PHASE 2 merged WRITE FAIL: {type(e).__name__}: {e}")
             try:
-                bytes_written = _write_text_file_atomic(CRYSTAL_SELF_FILE, new_self)
-                _set_agent_self_cache(new_self)
-                debug(
-                    f"[crystal_memory] PHASE 2b WRITE ok: "
-                    f"path={CRYSTAL_SELF_FILE} "
-                    f"prev_len={len(current_self)} new_len={len(new_self)} "
-                    f"delta={len(new_self)-len(current_self):+d} "
-                    f"bytes_written={bytes_written}"
-                )
-            except OSError as e:
-                debug(f"[crystal_memory] PHASE 2b WRITE FAIL: {type(e).__name__}: {e}")
-        else:
-            debug("[crystal_memory] PHASE 2b WRITE skipped: new_self 为空, 保留旧 md")
+                # 不区分谁失败, 一律回滚两份 (最保守: 不让任何一份被新值污染)
+                _write_text_file_atomic(CRYSTAL_MEMORY_FILE, current_mem)
+                _set_agent_memory_cache(current_mem)
+                _write_text_file_atomic(CRYSTAL_SELF_FILE, current_self)
+                _set_agent_self_cache(current_self)
+                debug("[crystal_memory] PHASE 2 merged ROLLBACK both ok")
+            except OSError as re:
+                debug(f"[crystal_memory] PHASE 2 merged ROLLBACK FAIL: {type(re).__name__}: {re}")
+                # 极端情况: 回滚也失败。此时不破坏, 由下次 update 自然覆盖。
 
     except Exception as e:
         debug(f"[crystal_memory] update FAIL: {type(e).__name__}: {e}")
@@ -724,10 +738,9 @@ async def _update_crystal_memory_async(
         _memory_updating = False
         debug(
             f"[crystal_memory] <<< END: "
-            f"mem_d=[{stats.get('mem_compress_delta', 0):+d}/"
-            f"{stats.get('mem_update_delta', 0):+d}] "
-            f"self_d=[{stats.get('self_compress_delta', 0):+d}/"
-            f"{stats.get('self_update_delta', 0):+d}]"
+            f"mem_d={stats.get('mem_update_delta', 0):+d} "
+            f"self_d={stats.get('self_update_delta', 0):+d} "
+            f"audit_len={stats.get('chat_audit_len', 0)}"
         )
 
 
@@ -762,60 +775,30 @@ async def _call_memory_update_llm(
     user_msg: str,
     assistant_msg: str,
     current_timestamp: str = "",
+    chat_audit: str = "",
 ) -> str:
     """
     调 LLM 更新 Crystal_memory.md, 返回新的 Markdown 文本。
 
     参数:
       current_timestamp: 秒级可读时间字符串 (来自 now_ms + format_dt_second)
+      chat_audit: 近期对话感知块 (build_chat_audit_block 的输出, 可空)
 
     ⚠️ 不传入 self: memory 只关心用户认知, 不载入 Crystal 关于自己的笔记。
 
     【v7 删除】ask_track / load_track 参数已移除 —— 全局 track 子系统废弃,
-    update prompt 上下文仅含"当前笔记 + 本轮对话 + 时间戳"。
+    update prompt 上下文仅含"当前笔记 + 本轮对话 + 时间戳 + chat_audit"。
     """
     messages = [
         {"role": "system", "content": MEMORY_UPDATE_SYSTEM()},
         {"role": "user", "content": buildMemoryUpdateUserPrompt(
             current_md, user_msg, assistant_msg,
             current_timestamp,
+            chat_audit,
         )},
     ]
     content, _ = await _call_llm(messages=messages, vision_model=False, disable_thinking=True)
-    return content.strip()
-
-
-async def _call_memory_compress_llm(
-    current_md: str,
-    current_timestamp: str = "",
-) -> tuple[str, bool]:
-    """
-    Phase 1 compress: 按时间分层压缩旧 Crystal_memory.md。
-
-    返回 (compressed_md, fallback):
-      - compressed_md: 压缩后的 Markdown (失败时回落到 current_md)
-      - fallback: True 表示走了 fallback 路径 (LLM 失败 / 返回空), False 表示正常压缩
-    """
-    if not current_md:
-        # 空记忆无压缩必要, 直接返回空串
-        return current_md, False
-
-    messages = [
-        {"role": "system", "content": MEMORY_COMPRESS_SYSTEM()},
-        {"role": "user", "content": buildMemoryCompressUserPrompt(
-            current_md, current_timestamp,
-        )},
-    ]
-    try:
-        content, _ = await _call_llm(messages=messages, vision_model=False, disable_thinking=True)
-        compressed = content.strip()
-        if not compressed:
-            debug("[crystal_memory] memory compress returned empty, fallback to original")
-            return current_md, True
-        return compressed, False
-    except Exception as e:
-        debug(f"[crystal_memory] memory compress FAIL: {type(e).__name__}: {e}")
-        return current_md, True
+    return content.strip()  # legacy: 旧两段独立 update 的 memory 路径, 解析失败 fallback 用
 
 
 async def _call_self_update_llm(
@@ -824,14 +807,16 @@ async def _call_self_update_llm(
     user_msg: str,
     assistant_msg: str,
     current_timestamp: str = "",
+    chat_audit: str = "",
 ) -> str:
     """
     调 LLM 更新 Crystal_self.md, 返回新的 Markdown 文本。
 
     与 memory update 的关键差异:
-      · 基础是压缩后的旧 self
+      · 基础是 current_self (不再走 compress 阶段)
       · 多喂一个「刚更新好的 memory」作为外部参照 (让 LLM 知道「我对用户的认知」,
         反向校准自我定位)
+      · 多喂 chat_audit 块 (与 memory update 对称, 提升 LLM 对近期互动的感知)
 
     【v7 删除】ask_track / load_track 参数已移除 —— 全局 track 子系统废弃。
     """
@@ -843,38 +828,141 @@ async def _call_self_update_llm(
             user_msg,
             assistant_msg,
             current_timestamp,
+            chat_audit,
         )},
     ]
     content, _ = await _call_llm(messages=messages, vision_model=False, disable_thinking=True)
-    return content.strip()
+    return content.strip()  # legacy: 旧两段独立 update 的 self 路径, 解析失败 fallback 用
 
 
-async def _call_self_compress_llm(
-    current_self_md: str,
+# ═══════════════════════════════════════════════════════════════════════
+# Crystal_memory + Crystal_self 合并 update (2026-10-09 引入)
+# ═══════════════════════════════════════════════════════════════════════
+# 合并动机: 旧版两段独立 LLM 调用 (Phase 2a memory → Phase 2b self),
+#   各自只看到"刚写好的一份", 容易把"他喜欢下厨"既写进 memory, 又在 self
+#   重复一份 (主语换成"我注意到他喜欢..."), 形成串档污染。
+# 新版: 一次性把 current_mem + current_self + 本轮对话 + chat_audit 全部塞给
+#   main LLM (支持 thinking 推理), 强制以 JSON 输出 {updated_memory,
+#   updated_self} 两个字段。LLM 在生成时就能"主动去重" — 同一事实只放一边,
+#   不再二次污染。
+# 同时: 一次 HTTP 调用, 省一半 token, 省一半延迟。
+
+
+def _safe_parse_update_json(content: str) -> dict | None:
+    """
+    兜底解析 LLM 的合并 update 响应。
+
+    LLM 输出可能在不同网关下表现不同:
+      · 裸 JSON:                {"updated_memory": "...", "updated_self": "..."}
+      · markdown fence 包裹:    ```json\n{...}\n```
+      · 思考前缀 + JSON:        "好的, 以下是更新: {...}"
+      · 解释后置 + JSON:        {...}\n注: 已按规则更新
+    必须全部容忍。失败时返回 None (调用方走保留旧值路径)。
+
+    校验: 必含 updated_memory / updated_self 两个**非空字符串**字段;
+          两份长度均 < 200 KB 防异常膨胀。
+    """
+    if not content:
+        return None
+    text = content.strip()
+
+    # 1) 尝试 markdown fence 抽取 (```json ... ``` / ``` ... ```)
+    import re
+    fence_match = None
+    for pat in (r"```json\s*(\{.*?\})\s*```", r"```\s*(\{.*?\})\s*```"):
+        m = re.search(pat, text, re.DOTALL)
+        if m:
+            fence_match = m.group(1)
+            break
+    if fence_match is not None:
+        text = fence_match
+
+    # 2) 尝试直接 json.loads
+    parsed: dict | None = None
+    try:
+        obj = json.loads(text)
+        if isinstance(obj, dict):
+            parsed = obj
+    except (json.JSONDecodeError, ValueError):
+        # 3) 兜底: 找第一个 { 到最后一个 } 截取再 load
+        idx_first = text.find("{")
+        idx_last = text.rfind("}")
+        if idx_first >= 0 and idx_last > idx_first:
+            try:
+                obj = json.loads(text[idx_first : idx_last + 1])
+                if isinstance(obj, dict):
+                    parsed = obj
+            except (json.JSONDecodeError, ValueError):
+                return None
+        else:
+            return None
+
+    if parsed is None:
+        return None
+
+    # 4) 校验字段
+    mem = parsed.get("updated_memory")
+    self_md = parsed.get("updated_self")
+    if not isinstance(mem, str) or not isinstance(self_md, str):
+        return None
+    if not mem.strip() or not self_md.strip():
+        return None
+    # 长度上限 (200 KB 一份, 防 LLM 异常膨胀)
+    if len(mem) > 200_000 or len(self_md) > 200_000:
+        return None
+
+    # 5) 长度上限校验 (200 KB 一份, 防 LLM 异常膨胀)
+    if len(mem) > 200_000 or len(self_md) > 200_000:
+        return None
+
+    return parsed
+
+
+async def _call_memory_and_self_update_llm(
+    current_mem: str,
+    current_self: str,
+    user_msg: str,
+    assistant_msg: str,
     current_timestamp: str = "",
-) -> tuple[str, bool]:
+    chat_audit: str = "",
+) -> tuple[str, str] | None:
     """
-    Phase 1 compress for Crystal_self.md: 与 memory compress 完全对称。
+    一次 LLM 调用同时产出 updated_memory + updated_self。
 
-    返回 (compressed_md, fallback), 行为与 _call_memory_compress_llm 一致。
+    · 走 main LLM (disable_thinking=False, json_mode=True), 支持 thinking 推理,
+      质量高于旧版专用 memory LLM。
+
+    返回:
+      (new_mem, new_self) — 成功
+      None               — 解析失败 / LLM 调用失败, 调用方应保留旧值
+
+    异常隔离: LLM 调用层抛错 (网络/限流) → 也返回 None,
+              外层 _update_crystal_memory_async 用 try/except 兜底。
     """
-    if not current_self_md:
-        # 空自我笔记无压缩必要, 直接返回空串 (首次记录场景)
-        return current_self_md, False
-
     messages = [
-        {"role": "system", "content": SELF_COMPRESS_SYSTEM()},
-        {"role": "user", "content": buildSelfCompressUserPrompt(
-            current_self_md, current_timestamp,
+        {"role": "system", "content": MEMORY_AND_SELF_UPDATE_SYSTEM()},
+        {"role": "user", "content": buildMemoryAndSelfUpdateUserPrompt(
+            current_mem, current_self,
+            user_msg, assistant_msg,
+            current_timestamp, chat_audit,
         )},
     ]
-    try:
-        content, _ = await _call_llm(messages=messages, vision_model=False, disable_thinking=True)
-        compressed = content.strip()
-        if not compressed:
-            debug("[crystal_memory] self compress returned empty, fallback to original")
-            return current_self_md, True
-        return compressed, False
-    except Exception as e:
-        debug(f"[crystal_memory] self compress FAIL: {type(e).__name__}: {e}")
-        return current_self_md, True
+    # json_mode=True → ai_llm 会加 response_format={"type":"json_object"},
+    # 显著降低解析失败率。旧的两段 prompt 路径仍走默认 (json_mode=False)
+    # 保留兼容。
+    # disable_thinking=False: 走 main LLM (DeepSeek 等支持 thinking 的模型可以
+    # 开启推理, 提升 memory/self 合并更新的质量; 用户没开 thinking 则按 main LLM
+    # 的全局 deepseek_thinking 配置走。
+    content, _ = await _call_llm(
+        messages=messages,
+        vision_model=False,
+        disable_thinking=False,
+        json_mode=True,
+    )
+    parsed = _safe_parse_update_json(content)
+    if parsed is None:
+        debug("[crystal_memory] merged parse FAIL, content head="
+              f"{repr(content[:120])}")
+        return None
+    return parsed["updated_memory"], parsed["updated_self"]
+

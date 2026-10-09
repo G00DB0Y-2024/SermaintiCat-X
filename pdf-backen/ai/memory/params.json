@@ -1,27 +1,27 @@
 {
   "ask_count_by_fp": {
-    "crystal_chat": 237
+    "crystal_chat": 343
   },
   "emotion_vector": {
-    "valence": 0.245073946723675,
-    "arousal": 0.0,
-    "novelty": -0.04454976935753881,
-    "clarity": 0.8446872940236867,
-    "last_update_dt": "2026-10-08 08:57:09",
+    "valence": 0.28107527809636423,
+    "arousal": 0.5044332739349978,
+    "novelty": 0.07354095781243192,
+    "clarity": 1.0,
+    "last_update_dt": "2026-10-09 22:32:24",
     "version": 1
   },
   "llm_configs": {
     "main": {
-      "api_key": "sk-8lofrp826JoFBWwFA441CdBf3bB347779c34Cb967b0e84Db",
-      "api_url": "https://aihubmix.com/v1/chat/completions",
-      "model": "gemini-3.1-flash-lite",
-      "vision_model": "gemini-3.1-flash-lite",
-      "deepseek_thinking": false
+      "api_key": "sk-7aa25dcdd11b4cd99646ea1c6c1a3d3e",
+      "api_url": "https://api.deepseek.com",
+      "model": "deepseek-flash",
+      "vision_model": "deepseek-flash",
+      "deepseek_thinking": true
     },
     "lint": {
       "api_key": "sk-8lofrp826JoFBWwFA441CdBf3bB347779c34Cb967b0e84Db",
       "api_url": "https://aihubmix.com/v1/chat/completions",
-      "model": "gemini-2.5-flash-lite-nothink"
+      "model": "gemini-2.5-flash-lite"
     }
   }
 }
