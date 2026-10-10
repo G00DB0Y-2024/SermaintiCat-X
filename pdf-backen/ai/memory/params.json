@@ -1,18 +1,18 @@
 {
   "ask_count_by_fp": {
-    "crystal_chat": 343
+    "crystal_chat": 349
   },
   "emotion_vector": {
-    "valence": 0.28107527809636423,
-    "arousal": 0.5044332739349978,
-    "novelty": 0.07354095781243192,
+    "valence": 0.747798020814902,
+    "arousal": 0.12441980222889071,
+    "novelty": 0.17062392236877766,
     "clarity": 1.0,
-    "last_update_dt": "2026-10-09 22:32:24",
+    "last_update_dt": "2026-10-10 23:46:39",
     "version": 1
   },
   "llm_configs": {
     "main": {
-      "api_key": "sk-7aa25dcdd11b4cd99646ea1c6c1a3d3e",
+      "api_key": "sk-06afff9739c342d8adf2826bac1ba31d",
       "api_url": "https://api.deepseek.com",
       "model": "deepseek-flash",
       "vision_model": "deepseek-flash",

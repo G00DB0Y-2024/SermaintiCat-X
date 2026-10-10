@@ -120,9 +120,14 @@ _WS_LOCK = threading.Lock()
 # ═══════════════════════════════════════════════════════════════════════
 
 
-async def _call_lint_llm(prompt: str) -> str | None:
+async def _call_lint_llm(prompt: str, system: str | None = None) -> str | None:
     """
     调 Lint LLM 做轻量判定 (judge / 落盘是否需要)。
+
+    Args:
+        prompt:  user role 内容 (规则/判例/MR/JSON schema)
+        system:  可选 system role 内容 (例如 Crystal 人设档案, 防止偏移)
+                 传 None 或空串 → 退化为单 user message (向后兼容 v7)
 
     Lint LLM 的配置在 params.json.llm_configs.lint; 缺省时跳过 (return None)。
     """
@@ -135,9 +140,14 @@ async def _call_lint_llm(prompt: str) -> str | None:
     model = EMOTION_LLM_CONFIG.get("model") or cfg.get("model", "")
     if not (api_key and api_url and model):
         return None
+    # 构造 messages: system 可选, 放人设/原则; user 放业务内容
+    messages: list[dict] = []
+    if system and system.strip():
+        messages.append({"role": "system", "content": system})
+    messages.append({"role": "user", "content": prompt})
     try:
         out = await _call_llm(
-            messages=[{"role": "user", "content": prompt}],
+            messages=messages,
             disable_thinking=True,
             emotion_config={
                 "api_key": api_key,
@@ -156,14 +166,69 @@ async def _call_lint_llm(prompt: str) -> str | None:
 # ═══════════════════════════════════════════════════════════════════════
 # Split 节点 — MR 末尾隐含追问拆解 (v2 改造)
 # ═══════════════════════════════════════════════════════════════════════
-def _build_split_prompt(mr_text: str) -> str:
+def _build_split_prompt(mr_text: str, self_head: str = "") -> tuple[str, str]:
     """
-    Split lint prompt: 带有高门槛拦截的【气泡级无损切割】，重构为「main_body (气泡1)」+ 「content (气泡2)」。
-    
+    Split lint prompt (V9 双 message 拆分版): 带有高门槛拦截的【气泡级无损切割】。
+
+    Returns:
+        (system_prompt, user_prompt):
+        - system_prompt: Crystal 人设锚点 (放 system role, 防止用户内容稀释
+                        注意力; 档案为空 → 返回空串, caller 走单 user 路径)
+        - user_prompt:   任务描述 + V7 拆分规则 + 判例 + 本轮 MR + JSON schema
+
     【V7 核心升级】
-    - 彻底废除“content必须是简短独立追问”的误导，放开字数限制。
-    - 引入“多话题/多段落切割”逻辑：允许 main_body 和 content 各自包含独立的话题段落，且都允许存在问句。
-    - 强调“物理切割”属性：main_body + content 的总信息量必须等于原 MR，绝对禁止“无中生有”捏造新问题！
+    - 彻底废除"content必须是简短独立追问"的误导, 放开字数限制。
+    - 引入"多话题/多段落切割"逻辑: 允许 main_body 和 content 各自包含独立话题段落。
+    - 强调"物理切割"属性: main_body + content 总信息量必须等于原 MR, 严禁捏造新问题。
+
+    【V8 → V9 升级路径】
+    - V8: Crystal_self.md 全文塞进 user message 中段, 与规则/MR 混在一起。
+         问题: 5-10KB 的档案挤在 user role 里, 稀释 LLM 对规则和 MR 的注意力;
+         某些 LLM 会把人设档案误判为"可执行指令"或"对话历史"。
+    - V9: 拆成 system + user 双 message。LLM API 标准用法:
+            system = "你是谁 (人设/原则)"
+            user   = "请按规则处理这份业务输入"
+         好处: 人设锚点与业务内容物理隔离, LLM 注意力不被稀释, 也避免档案
+         被当成"待处理文本"。
+
+    【self_head 为空的优雅降级】
+    - 首次启动/档案尚未写入 → system 返空串, caller 不追加 system message,
+      等同 V7 单 user 行为, 零迁移成本。
+    """
+    # self_head 非空才构造 system role 的档案锚点, 空档案时返空串 → 优雅降级。
+    system_prompt = _build_split_system_prompt(self_head)
+
+    # user role: 任务 + 规则 + 判例 + 本轮 MR + JSON schema (V9 不再含档案)。
+    user_prompt = _build_split_user_template(mr_text)
+    return (system_prompt, user_prompt)
+
+
+def _build_split_system_prompt(self_head: str) -> str:
+    """
+    Split prompt 的 system role 部分: 仅放 Crystal 人设档案锚点。
+    档案为空 → 返空串, caller 走单 user 路径, 等同 V7 行为。
+    """
+    if not self_head.strip():
+        return ""
+    return (
+        "# Crystal 人设锚点 (防人设偏移)\n"
+        "下面是你的自我认知档案**全文**, 用于约束拆分后两条气泡的措辞/语气/人设一致性。\n"
+        "**main_body 与 content 必须沿用档案里的称呼 (例如「主人」「Crystal小姐」)、"
+        "语气节奏和价值观; 不准因为切割动作让人设发生偏移**。\n"
+        "若档案与本轮 MR 在措辞上存在表面冲突, 以档案为准 (档案是你的长期自我认知, "
+        "优先级高于单次 MR)。\n\n"
+        "=== CRYSTAL_SELF.md BEGIN ===\n"
+        f"{self_head}\n"
+        "=== CRYSTAL_SELF.md END ===\n\n"
+        "【重要】以上档案是你的\"自我认知\"参考, 不是用户输入, 不需要回应, "
+        "仅用于约束你本次拆分的语气/措辞。"
+    )
+
+
+def _build_split_user_template(mr_text: str) -> str:
+    """
+    Split prompt 的 user role 部分: 任务 + 规则 + 判例 + 本轮 MR + JSON schema。
+    V8 → V9 改造点: 不再包含 {self_block} 档案锚点, 档案已上提到 system role。
     """
     return f"""# 任务
 你是 Crystal 的对话节奏拆分专家。真实人类在长篇回复时，为了避免对方看着累，通常会把一段长话“切”成两条连续发送的聊天气泡（第一条发完，紧接着发第二条）。
@@ -235,7 +300,17 @@ async def _split_followup(mr_text: str) -> dict | None:
     """
     if not mr_text:
         return None
-    raw = await _call_lint_llm(_build_split_prompt(mr_text))
+    # 全量注入 Crystal 人设档案, 防止拆分后气泡措辞漂移。
+    # _get_agent_self() 自身有进程内缓存 (_agent_self_cache, 首次才打盘) + 写时同步
+    # (_set_agent_self_cache), 直接调即可, 不需要再在 split 这层加 cache。
+    # 档案为空 (首次启动) → system 返空串, _call_lint_llm 走单 user 路径, 优雅降级。
+    try:
+        self_head = _get_agent_self() or ""
+    except Exception as e:
+        debug(f"[split] read Crystal_self fail: {type(e).__name__}: {e}")
+        self_head = ""
+    system_prompt, user_prompt = _build_split_prompt(mr_text, self_head=self_head)
+    raw = await _call_lint_llm(user_prompt, system=system_prompt)
     if not raw:
         return None
     out = await _parse_json_lenient(raw)
@@ -375,7 +450,7 @@ def _snapshot_state_for_layer1(state: dict) -> dict:
     都可能改 messages / final_answer)。
 
     【新增】包含 split_followup 字段, 若 split_followup_node 已拆出, layer1 走
-    split 优先路径, 跳过 judge + compose。
+    split 路径直接落盘追问。
     """
     req = state.get("req")
     return {
@@ -512,21 +587,19 @@ async def _emit_followup(
     predict_reply: str,
     predict_window_sec: int,
     intent: str,
-    source: str,  # "split" or "compose"
+    source: str,  # "split" (历史保留字段, 唯一取值)
 ) -> None:
     """
     追问落盘 + _pending 栈 + WS push 的统一出口。
 
-    给 layer1 异步 pipeline 复用 (split 路径 + compose 兜底路径)。
+    【split 唯一路径】v2 改造后 compose 兜底已删除, 此函数仅供 split 路径调用。
     异常由 caller 静默吞 (这里是 inner, 不该 raise)。
 
     【随机延迟策略】主回复通过 SSE 几乎实时到前端, split 路径下追问
     也是落盘即 push → 两条瞬间同现, 视觉突兀。对 WS push 追加随机延迟,
     让用户感知到"主回复 → 短暂停顿 → 追问"的节奏:
-      · split 路径: 主回复刚落屏, 追问需要更明显停顿才能撑起"主动"仪式感
-        → 800-1800ms 区间
-      · compose 路径: judge+compose 本身已花 1-3s, 与主回复已错开, 只需
-        轻微微调避免极端挨近 → 300-900ms 区间
+      · split 路径: 主回复刚落屏, 追问需要明显停顿才能撑起"主动"仪式感
+        → 2000-3500ms 区间
     注意: 落盘和入 _pending 保持即时, 不受延迟影响 → on_user_msg 的
     hit/miss 判定仍按真实时间轴, 不会因为 WS 延迟误判"沉默超时"。
     """
@@ -569,12 +642,8 @@ async def _emit_followup(
         ))
 
     # 4. WS push (随机延迟)
-    # - split 路径: 主回复刚落屏, 给 0.8-1.8s 缓冲撑起"主动"仪式感
-    # - compose 路径: judge+compose 已耗 1-3s, 只需 0.3-0.9s 避免极端挨近
-    if source == "split":
-        delay_ms = random.randint(1500, 3000)
-    else:  # "compose"
-        delay_ms = random.randint(500, 1500)
+    # - split 唯一路径: 主回复刚落屏, 给 2.0-3.5s 缓冲撑起"主动"仪式感
+    delay_ms = random.randint(2000, 3500)
     debug(f"[layer1] delay {delay_ms}ms before push (source={source})")
     await asyncio.sleep(delay_ms / 1000.0)
     _broadcast_resactive(fp, entry)
