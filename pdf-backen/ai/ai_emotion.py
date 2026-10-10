@@ -31,15 +31,12 @@ from .ai_config import (
     EMOTION_DECAY_INTERVAL_SEC,
     EMOTION_DECAY_WRITE_THRESHOLD,
     EMOTION_DECAY_FACTOR,
-    FATIGUE_DECAY_INTERVAL_SEC,
     BASE_DIR,
     MEMORY_DIR,
 )
 from .ai_io import (
     EMOTION_AXES,
     EMOTION_DEFAULT,
-    _apply_fatigue_decay,
-    _get_fatigue_value,
     _load_emotion,
     _save_emotion,
 )
@@ -646,150 +643,3 @@ def build_emotion_context_block(emotion: dict | None) -> str:
         "例如节奏快慢、用词温度、对用户的态度等; "
         f"但不要直接说出「我现在{label_word}了」, 也不要破坏信息的准确性。"
     )
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# 疲劳值 → 自然语言描述 (注入 chat system prompt)
-# ═══════════════════════════════════════════════════════════════════════
-#
-# 与 build_emotion_context_block 同源范式:
-#   · 决策模型: 按 value 区间选档位 (精神饱满/尚有倦意/微疲/明显疲), 注入语气约束
-#   · 2026-10-10 v3: 全 v 范围注入, 无盲区, 无 0.30 阈值突变
-#   · 文本指令是"间接影响" (语气/用词/节奏/长度), 不让 LLM 直接说自己
-#     "累了/想休息" 等元描述, 否则会很假
-#   · 不会破坏信息准确性, 也不会让 LLM 主动向用户表露疲劳
-
-# value → (档位标签, 语气约束描述)
-# 2026-10-10 v3: 全 v 范围连续, 移除 0.30 硬阈值突变点。
-#   · 旧: v < 0.30 → 不注入 (盲区), v ≥ 0.30 → 3 档 ("微疲/明显疲/累")
-#   · 新: v=0 → "精神" (注入但说"精神饱满"), v=1.0 → "累"
-#   · 中间档位线性感受, LLM 看到 v=0.05 就知道"微倦, 比精神差一点", 不再盲区。
-#   · 标签语义重新设计: 从"何时开始疲倦" → "持续表述当前状态", 更平滑
-_FATIGUE_TIERS: list[tuple[float, float, str, str]] = [
-    # (lower_inclusive, upper_exclusive, label, descr)
-    (0.00, 0.15, "精神饱满",
-     "此刻精神很好, 思维清晰, 语速自然, 愿意主动展开话题, 愿意适度拆条让对话有节奏"),
-    (0.15, 0.40, "尚有倦意",
-     "稍显倦意, 但仍愿意倾听和回应, 句式略短, 语气略柔, 主动追问的密度比精神时稍低"),
-    (0.40, 0.70, "微疲",
-     "已有些疲倦, 回复会更精简, 句式更短, 节奏明显放缓, 主动拆条/追问的密度自然下降"),
-    (0.70, 1.01, "明显疲",
-     "很疲倦, 回复极简, 可能只用一两句, 主动追问意愿降到很低, 语气更简朴更沉, 不会硬撑"),
-]
-
-
-def build_fatigue_context_block(fatigue_value: float | None) -> str:
-    """
-    把当前 fatigue.value 转成一段给 LLM 看的语气约束提示词。
-
-    2026-10-10 v3: 全 v 范围注入, 移除 0.30 盲区。
-    只有 None / 非法才返回 "" (数据缺失保护)。
-
-    Args:
-        fatigue_value: 浮点 ∈ [0.0, 1.0]; None 或非法 → 返回 ""。
-
-    Returns:
-        多行字符串, 调用方以 \n\n 拼到 system content 末尾;
-        value 缺失 → 返回 ""; 否则按档位选提示。
-
-    用法 (compose_chat_messages):
-        block = build_fatigue_context_block(_get_fatigue_value())
-        if block:
-            system_content += "\n\n" + block
-    """
-    if fatigue_value is None:
-        return ""
-    try:
-        v = float(fatigue_value)
-    except (TypeError, ValueError):
-        return ""
-    # 2026-10-10 v3: 移除 v < FATIGUE_CONTEXT_THRESHOLD 早返, 全 v 范围都注入。
-    # 旧版: v < 0.30 时静默, 等于"LLM 不知道 Crystal 状态", 突变感强。
-    # 新版: 哪怕 v=0.05 也注入"精神饱满"档, LLM 持续收到疲劳信号。
-
-    # 选档位
-    label_word = "疲倦"
-    descr = ""
-    for lower, upper, lab, d in _FATIGUE_TIERS:
-        if lower <= v < upper:
-            label_word = lab
-            descr = d
-            break
-    else:
-        # 兜底: v >= 1.0 时 (正常被 clamp 到 1.0, 但 LLM 偶尔给 1.5)
-        label_word = "明显疲"
-        descr = _FATIGUE_TIERS[-1][3]
-
-    return (
-        "【当前疲劳度 (Crystal 自身状态, 不要对用户直述, "
-        "仅在语气、用词、节奏、长度上自然地体现)】\n"
-        f"此刻的疲劳度是「{label_word}」(value={v:.2f}): {descr}。\n"
-        "请让回复自然地贴合这个疲劳程度 —— "
-        "例如精简句式、放慢节奏、降低主动追问密度; "
-        "但不要直接说出「我累了/我想休息」之类元描述, "
-        "也不要把这种倦意强加到对用户的判断上, "
-        "信息准确性优先。"
-    )
-
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# 疲劳衰减后台守护线程 (与 emotion decay 解耦, 独立周期)
-# ═══════════════════════════════════════════════════════════════════════
-#
-# 为什么不与 emotion 衰减共用一个线程:
-#   · 衰减函数不同: emotion 是各轴半衰期, 疲劳是双态(工作/休息)
-#   · 周期不同: emotion 30s, 疲劳 60s (疲劳变化更慢, 不需要高频 tick)
-#   · 互相解耦: 以后改衰减参数不会牵一发动全身
-# 错误隔离: 每次 _apply_fatigue_decay 在 try/except 中调用, 单次失败不影响后续 tick。
-_fatigue_decay_thread: Optional[object] = None  # threading.Thread 引用
-
-
-def _fatigue_decay_loop() -> None:
-    """
-    后台守护协程: 每 FATIGUE_DECAY_INTERVAL_SEC 跑一次 _apply_fatigue_decay。
-    用同步函数 + time.sleep 简单实现, 不需要额外库。
-
-    异常隔离: 每次 _apply_fatigue_decay 在 try/except 中调用,
-    单次失败不影响后续 tick。
-    """
-    debug(
-        f"[fatigue_decay] loop START: interval={FATIGUE_DECAY_INTERVAL_SEC}s"
-    )
-    while True:
-        try:
-            _apply_fatigue_decay()
-        except Exception as e:
-            debug(f"[fatigue_decay] tick FAIL: {type(e).__name__}: {e}")
-        try:
-            import time as _time
-            _time.sleep(FATIGUE_DECAY_INTERVAL_SEC)
-        except Exception as e:
-            debug(f"[fatigue_decay] sleep FAIL: {type(e).__name__}: {e}")
-            _time.sleep(1)  # 兜底, 不让循环空转
-
-
-def start_fatigue_decay_thread() -> None:
-    """
-    启动疲劳衰减后台守护线程 (daemon=True, 进程退出自动结束)。
-
-    启动策略:
-      · PdfBacken.py 的 lifespan 里调一次 (与 start_emotion_decay_thread 并列)。
-      · 模块级幂等: 已启动时直接 return, 重复调用安全。
-
-    之所以选线程而不是 asyncio task:
-      · _apply_fatigue_decay 是纯 CPU+文件 IO, 没有 await; 用线程更简单。
-      · 与 FastAPI 异步事件循环解耦, 不会阻塞请求处理。
-    """
-    global _fatigue_decay_thread
-    if _fatigue_decay_thread is not None and _fatigue_decay_thread.is_alive():
-        return
-    import threading
-    t = threading.Thread(
-        target=_fatigue_decay_loop,
-        name="fatigue-decay-loop",
-        daemon=True,
-    )
-    _fatigue_decay_thread = t
-    t.start()
-    debug("[fatigue_decay] thread started")

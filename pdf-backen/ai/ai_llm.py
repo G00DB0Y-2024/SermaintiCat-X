@@ -135,29 +135,10 @@ async def _call_llm(
         if not data:
             debug(f"[_call_llm] empty JSON body, raw={res.text[:500]}")
 
-    msg = data.get("choices", [{}])[0].get("message") or {}
-    # 【v2 修复 2026-10-10】DeepSeek thinking 模式下, 上游把"答案正文"
-    # 放在 reasoning_content, content 字段常为空字符串。直接读 content 会
-    # 拿到 "", 然后被 `or` 短路落进 json.dumps(data) 的兜底分支, 把整个
-    # 上游响应 (含 reasoning + metadata) 写进 ResAsk.content, 进而污染
-    # split 拆解 → 用户看到一坨原始 JSON 推理串。
-    #
-    # 优先级: content > reasoning_content > text > JSON dump
-    #  - content 优先: 兼容 aihubmix / OpenAI 等不走 thinking 的链路
-    #  - reasoning_content 兜底: 仅当 content 为空时取 (thinking 模式)
-    #  - text 兜底: 兼容老式 completions 接口
-    #  - json.dumps: 最后一根稻草, 便于排查
     content = (
-        msg.get("content")
-        or msg.get("reasoning_content")
+        data.get("choices", [{}])[0].get("message", {}).get("content")
         or data.get("choices", [{}])[0].get("text")
         or json.dumps(data, ensure_ascii=False)
     )
-    if msg.get("content") == "" and msg.get("reasoning_content"):
-        # 标记一次, 方便后端日志 / 上线后回溯
-        debug(
-            f"[_call_llm] thinking-mode fallback: content='', "
-            f"len(reasoning_content)={len(msg.get('reasoning_content') or '')}"
-        )
     usage = data.get("usage") or {}
     return content, usage
