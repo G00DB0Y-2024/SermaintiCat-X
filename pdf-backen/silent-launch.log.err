@@ -1,0 +1,31 @@
+[35mINFO[0m:     [2026/10/10 20:19] - Started server process [10744]
+[35mINFO[0m:     [2026/10/10 20:19] - Waiting for application startup.
+[35mINFO[0m:     [2026/10/10 20:19] - [emotion_decay] loop START: interval=30s base_half_life=240min
+[35mINFO[0m:     [2026/10/10 20:19] - [emotion_decay] thread started
+[35mINFO[0m:     [2026/10/10 20:19] - [fatigue_decay] loop START: interval=60s
+[35mINFO[0m:     [2026/10/10 20:19] - [emotion] loaded: {'valence': 0.21727160042914978, 'arousal': 0.04441980222889069, 'novelty': -0.07937607763122236, 'clarity': 0.9531076360107547, 'last_update_dt': '2026-10-10 20:11:47', 'version': 1}
+[35mINFO[0m:     [2026/10/10 20:19] - [fatigue_decay] thread started
+[35mINFO[0m:     [2026/10/10 20:19] - [fatigue] loaded: {'value': 0.4202823812715781, 'last_update_dt': '2026-10-10 20:12:00', 'version': 1}
+[35mINFO[0m:     [2026/10/10 20:19] - Application startup complete.
+[35mINFO[0m:     [2026/10/10 20:19] - Uvicorn running on http://127.0.0.1:8225 (Press CTRL+C to quit)
+[35mINFO[0m:     [2026/10/10 20:19] - 220.196.192.220:0 - "WebSocket /ws" [accepted]
+[35mINFO[0m:     [2026/10/10 20:19] - connection open
+[35mINFO[0m:     [2026/10/10 20:19] - [ws] client registered (total=1)
+[35mINFO[0m:     [2026/10/10 20:19] - [ws] client connected
+[35mINFO[0m:     [2026/10/10 20:19] - [/ai/emotion] hit ¡ú valence=+0.2173 arousal=+0.0444 novelty=-0.0794 clarity=+0.9531 dt='2026-10-10 20:11:47' v=1 |max|=0.9531
+[35mINFO[0m:     [2026/10/10 20:19] - 127.0.0.1:18159 - "GET /ai/emotion HTTP/1.1" 200
+[35mINFO[0m:     [2026/10/10 20:20] - [ws] client disconnected
+[35mINFO[0m:     [2026/10/10 20:20] - [ws] client unregistered (total=0)
+[35mINFO[0m:     [2026/10/10 20:20] - 220.196.192.220:0 - "GET /ai/config HTTP/1.1" 200
+[35mINFO[0m:     [2026/10/10 20:20] - [/ai/config] api_url='https://aihubmix.com/v1/chat/completions'  model='gemini-2.5-flash-lite-nothink'  vision_model='gemini-2.5-flash-lite-nothink'  deepseek_thinking=False
+[35mINFO[0m:     [2026/10/10 20:20] - 220.196.192.220:0 - "POST /ai/config HTTP/1.1" 200
+[35mINFO[0m:     [2026/10/10 20:20] - 220.196.192.220:0 - "GET /ai/emotion/config HTTP/1.1" 200
+[35mINFO[0m:     [2026/10/10 20:20] - [/ai/emotion/config] api_url='https://aihubmix.com/v1/chat/completions'  model='gemini-2.5-flash-lite'  has_key=True
+[35mINFO[0m:     [2026/10/10 20:20] - 220.196.192.220:0 - "POST /ai/emotion/config HTTP/1.1" 200
+[35mINFO[0m:     [2026/10/10 20:20] - [/ai/history] pdf_fp='crystal_chat' path='F:\\MyProjects\\PDFAI\\pdf-backen\\save\\crystal_chat_ai.json'
+[35mINFO[0m:     [2026/10/10 20:20] - 220.196.192.220:0 - "POST /ai/history HTTP/1.1" 200
+[35mINFO[0m:     [2026/10/10 20:20] - 220.196.192.220:0 - "WebSocket /ws" [accepted]
+[35mINFO[0m:     [2026/10/10 20:20] - connection open
+[35mINFO[0m:     [2026/10/10 20:20] - [ws] client registered (total=1)
+[35mINFO[0m:     [2026/10/10 20:20] - [ws] client connected
+[35mINFO[0m:     [2026/10/10 20:20] - [emotion_decay] applied: elapsed=8.5min v=[+0.217->+0.207 hl=120m] a=[+0.044->+0.044 hl=240m] n=[-0.079->-0.079 hl=480m] c=[+0.953->+0.953 hl=720m]

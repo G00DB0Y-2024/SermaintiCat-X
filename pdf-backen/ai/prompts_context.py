@@ -19,9 +19,14 @@ from __future__ import annotations
 from typing import Optional
 
 from .ai_models import AiAskReq, AiLoadReq
-from .ai_config import CHAT_FP, CHAT_AUDIT_LIMIT
-from .ai_emotion import build_emotion_context_block
-from .ai_io import _load_emotion, _paper_history_path, _read_json_safe, _filter_entries
+from .ai_config import (
+    CHAT_FP,
+    CHAT_AUDIT_LIMIT,
+    COMPRESS_FRESH_HOURS,
+    COMPRESS_TRANSIT_HOURS,
+)
+from .ai_emotion import build_emotion_context_block, build_fatigue_context_block
+from .ai_io import _get_fatigue_value, _load_emotion, _paper_history_path, _read_json_safe, _filter_entries
 from .ai_utils import format_dt_second, get_device_context
 from .prompts_system import SYSTEM_ASK, SYSTEM_LOAD
 from utils.log import debug
@@ -289,6 +294,79 @@ def buildMemoryAndSelfUpdateUserPrompt(
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# Compress prompt — 与 update 同构, 但不注入本轮对话
+# ═══════════════════════════════════════════════════════════════════════
+
+def buildMemoryAndSelfCompressUserPrompt(
+    current_memory_md: str,
+    current_self_md: str,
+    current_timestamp: str = "",
+) -> str:
+    """
+    构造「压缩」user prompt — 一次注入两份 md 全文 + 时间戳 + 分区阈值,
+    让 LLM 在 JSON 输出里同时维护两边 (按"近详远略"压缩)。
+
+    与 update 的关键差异 (同构但**信息子集**):
+      · 不注入本轮对话 (compress 与本轮对话无关, 是"清理历史"的副作用)
+      · 不注入 chat_audit (compress 关心的是 md 内部的时间分层, 不是新事实)
+      · 注入分区阈值 (FRESH_HOURS / TRANSIT_HOURS) 让 LLM 知道边界
+      · 任务指令是"压缩"而非"追加新事实"
+
+    注入顺序:
+      1) 时间戳 (用于判"条目距今多久")
+      2) 分区阈值 (让 LLM 知道新鲜/过渡/压缩的分界)
+      3) 当前 Crystal_memory.md 全文
+      4) 当前 Crystal_self.md 全文
+      5) 任务指令: 按"近详远略"输出 JSON
+    """
+    timestamp_section = ""
+    if current_timestamp:
+        timestamp_section = (
+            f"\n【本次压缩时刻】{current_timestamp}（北京时间）。\n"
+            "请按各条目末尾的 [更新时间: YYYY-MM-DD HH:MM] 标注, "
+            "判断它们距离『本次压缩时刻』多远, 落入哪个分区。\n"
+        )
+
+    threshold_section = (
+        f"\n【时间分区阈值】\n"
+        f"  · 新鲜区: 条目时间戳距今 < {COMPRESS_FRESH_HOURS} 小时\n"
+        f"  · 过渡区: 距今 {COMPRESS_FRESH_HOURS} ~ {COMPRESS_TRANSIT_HOURS} 小时\n"
+        f"  · 压缩区: 距今 > {COMPRESS_TRANSIT_HOURS} 小时\n"
+        f"(默认 6h / 72h, 可改 ai_config 常量)\n"
+    )
+
+    memory_block = (
+        "【当前 Crystal_memory.md 全文 (memory — 关于「他」的认知)】\n"
+        "(如果是空字符串, 表示这是首次记录, 不需要压缩)\n"
+        + (current_memory_md if current_memory_md else "(空)\n")
+    )
+
+    self_block = (
+        "【当前 Crystal_self.md 全文 (self — 关于「我」的认知)】\n"
+        "(如果是空字符串, 表示这是首次记录, 不需要压缩)\n"
+        + (current_self_md if current_self_md else "(空)\n")
+    )
+
+    task_block = (
+        "【任务指令 — 压缩 (近详远略, 严格遵循 system prompt)】\n"
+        "请按 system prompt 定义的「分区压缩 + 风格平滑 + 信息保留」规则, "
+        "对两份 md 各输出一份**压缩后的完整 Markdown**。\n"
+        "同一关键事实**严禁**在两份笔记里各写一份 (与 update 同约束)。\n"
+        "输出格式必须是合法 JSON 对象, 仅含两个字段:\n"
+        '  {"updated_memory": "<压缩后的完整 Markdown 全文>", '
+        '"updated_self": "<压缩后的完整 Markdown 全文>"}\n'
+    )
+
+    return (
+        timestamp_section
+        + threshold_section
+        + memory_block
+        + self_block
+        + task_block
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # Ask/Load 的 user content 构建
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -436,6 +514,7 @@ def compose_chat_messages(
     #    异步更新, 那个新值留给下一轮用。这个回路天然闭环:
     #      上轮 emotion → 影响本轮 LLM 语气 → 本轮 Lint LLM 评估 → 下轮 emotion 基线
     emotion_context = build_emotion_context_block(_load_emotion())
+    fatigue_context = build_fatigue_context_block(_get_fatigue_value())
 
     system_content = SYSTEM_ASK(time_context, agent_mem)
     if device_context:
@@ -461,6 +540,8 @@ def compose_chat_messages(
         )
     if emotion_context:
         system_content += "\n\n" + emotion_context
+    if fatigue_context:
+        system_content += "\n\n" + fatigue_context
 
     messages: list[dict] = [
         {"role": "system", "content": system_content},

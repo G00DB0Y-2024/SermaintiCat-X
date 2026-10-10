@@ -29,7 +29,11 @@ from .ai_config import (
     MEMORY_DIR,
     PARAMS_FILE,
     SAVE_DIR,
+    FATIGUE_INCREMENT_MAIN,
+    FATIGUE_INCREMENT_PROACTIVE,
+    FATIGUE_DECAY_WRITE_THRESHOLD,
 )
+# 2026-10-10: 移除 FATIGUE_HARD_STOP import — 硬停止整套机制已下线。
 from .ai_utils import _write_text_file_atomic, format_dt_second, now_ms
 from utils.log import debug
 
@@ -464,6 +468,210 @@ def _save_emotion(emotion: dict) -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# 疲劳值 (fatigue_vector) — 缓存 + 读写
+# ═══════════════════════════════════════════════════════════════════════
+#
+# Schema:
+#   {
+#     "value":          float,    # 疲劳度, [0.0, 1.0], 0=精神, 1=极度疲劳
+#     "last_update_dt": str,      # "YYYY-MM-DD HH:MM:SS" 北京时间, 衰减锚点
+#     "version":        int,
+#   }
+#
+# 与 emotion_vector 的关键区别:
+#   · 一维标量 (不是 4 轴向量)
+#   · 衰减双态: 工作中不衰减, 静默超过 FATIGUE_REST_THRESHOLD_MIN 才进入休息态衰减
+#   · 累加由调用方显式触发: _inc_fatigue_main / _inc_fatigue_proactive
+#   · 与 emotion_llm_node / layer1_node 同样只服务 chat 侧 (非 CHAT_FP → 跳过)
+#
+FATIGUE_DEFAULT: dict = {
+    "value": 0.0,
+    "last_update_dt": "",  # 首次加载时由 _load_fatigue 填上当前 dt
+    "version": 1,
+}
+
+_fatigue_cache: dict | None = None
+
+
+def _load_fatigue() -> dict:
+    """
+    加载疲劳值。懒加载 + 缓存; 磁盘缺失则返回默认向量 (0.0)。
+    与 _load_emotion 同一套语义:
+      · 文件不存在 → 默认向量
+      · JSON 解析失败 → 默认向量 + debug
+      · 缺字段 / 字段类型错 → 修补到合法值 (clamp [0.0, 1.0])
+    Returns:
+        疲劳值 dict 的**副本** (调用方修改不会影响 cache)。
+    """
+    global _fatigue_cache
+    if _fatigue_cache is None:
+        _ensure_memory_dir()
+        loaded: dict = {}
+        try:
+            if os.path.exists(PARAMS_FILE):
+                with open(PARAMS_FILE, "r", encoding="utf-8") as f:
+                    raw = json.load(f)
+                section = (raw or {}).get("fatigue_vector", {})
+                if isinstance(section, dict):
+                    loaded = dict(section)
+        except (json.JSONDecodeError, OSError, AttributeError, TypeError) as e:
+            debug(f"[fatigue] load failed, reset to default: {e}")
+            loaded = {}
+
+        out = dict(FATIGUE_DEFAULT)
+        v = loaded.get("value", 0.0)
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            # clamp 到 [0.0, 1.0], 避免脏数据
+            out["value"] = max(0.0, min(1.0, float(v)))
+        else:
+            out["value"] = 0.0
+        if not isinstance(loaded.get("last_update_dt"), str) or not loaded["last_update_dt"]:
+            out["last_update_dt"] = format_dt_second(now_ms())
+        else:
+            out["last_update_dt"] = loaded["last_update_dt"]
+        out["version"] = 1
+        _fatigue_cache = out
+        debug(f"[fatigue] loaded: {out}")
+    return dict(_fatigue_cache)
+
+
+def _save_fatigue(fatigue: dict) -> None:
+    """
+    把疲劳值写回 params.json (走 _save_params 的"读-改-写",
+    保留 ask_count_by_fp / emotion_vector 等其他字段)。
+
+    Args:
+        fatigue: 完整疲劳值 dict, 应至少含 value + last_update_dt + version。
+                 不做字段级修补 —— 调用方负责构造合法值。
+    """
+    global _fatigue_cache
+    _fatigue_cache = dict(fatigue)
+    _save_params({"fatigue_vector": _fatigue_cache})
+
+
+def _get_fatigue_value() -> float:
+    """读当前 fatigue.value, 缺省 0.0。供 ai_active / ai_emotion 快速读。"""
+    return _load_fatigue().get("value", 0.0)
+
+
+def _set_fatigue_value(new_value: float) -> float:
+    """
+    直接设置 fatigue.value (clamp + 落盘 + 刷 last_update_dt)。
+    返回新 value。供衰减线程 / 调试用。
+    """
+    cur = _load_fatigue()
+    new_v = max(0.0, min(1.0, float(new_value)))
+    cur["value"] = new_v
+    cur["last_update_dt"] = format_dt_second(now_ms())
+    cur["version"] = 1
+    _save_fatigue(cur)
+    return new_v
+
+
+def _inc_fatigue(pdf_fp: str, source: str = "main") -> float:
+    """
+    chat 侧疲劳值累加, 立刻落盘, 返回新 value。
+
+    Args:
+        pdf_fp: 必须 == CHAT_FP, 否则不累加, 立即 return 当前 value (chat-only 约束)
+        source: "main" (Crystal 出主答) 或 "proactive" (Crystal 主动追问落盘)
+                系数由 ai_config.FATIGUE_INCREMENT_* 决定
+    Returns:
+        累加后的新 fatigue.value (浮点)。
+    """
+    if pdf_fp != CHAT_FP:
+        # 论文侧不累加 (与 emotion_llm_node / layer1_node 同约束)
+        return _get_fatigue_value()
+    if source == "proactive":
+        delta = FATIGUE_INCREMENT_PROACTIVE
+    else:
+        delta = FATIGUE_INCREMENT_MAIN
+    cur = _load_fatigue()
+    new_v = max(0.0, min(1.0, cur.get("value", 0.0) + delta))
+    cur["value"] = new_v
+    cur["last_update_dt"] = format_dt_second(now_ms())
+    cur["version"] = 1
+    _save_fatigue(cur)
+    debug(f"[fatigue] inc source={source} delta=+{delta:.2f} -> value={new_v:.3f}")
+    return new_v
+
+
+def _apply_fatigue_decay() -> bool:
+    """
+    单次疲劳衰减判定。同步函数, 由后台 _fatigue_decay_thread 每 N 秒调用一次。
+    双态动力学:
+      · 距 last_update_dt < FATIGUE_REST_THRESHOLD_MIN  → 工作中, 不衰减
+      · 距 last_update_dt ≥ FATIGUE_REST_THRESHOLD_MIN  → 休息态, 走半衰期 FATIGUE_REST_HALF_LIFE_MIN
+    Returns:
+        bool — True 表示有落盘, False 表示无变化或被跳过。
+    """
+    from .ai_config import (
+        FATIGUE_REST_THRESHOLD_MIN,
+        FATIGUE_REST_HALF_LIFE_MIN,
+        FATIGUE_DECAY_WRITE_THRESHOLD,
+    )
+    from datetime import datetime
+
+    cur = _load_fatigue()
+    last_dt_str = cur.get("last_update_dt", "")
+    if not last_dt_str:
+        # 缺 dt → 用 now 重置
+        cur["last_update_dt"] = format_dt_second(now_ms())
+        _save_fatigue(cur)
+        debug("[fatigue_decay] last_update_dt missing, reset to now")
+        return True
+
+    try:
+        last_dt = datetime.strptime(last_dt_str, "%Y-%m-%d %H:%M:%S")
+    except (ValueError, TypeError):
+        cur["last_update_dt"] = format_dt_second(now_ms())
+        _save_fatigue(cur)
+        debug("[fatigue_decay] last_update_dt parse-fail, reset to now")
+        return True
+
+    now_dt = datetime.strptime(format_dt_second(now_ms()), "%Y-%m-%d %H:%M:%S")
+    elapsed_min = (now_dt - last_dt).total_seconds() / 60.0
+    if elapsed_min <= 0:
+        return False  # 时钟回拨
+
+    old_v = cur.get("value", 0.0)
+    if elapsed_min < FATIGUE_REST_THRESHOLD_MIN:
+        # 工作中: 不衰减, 只刷新 dt (避免一直不刷 dt 永远不进入休息态)
+        new_v = old_v
+    else:
+        # 休息态: 半衰期衰减
+        excess_min = elapsed_min - FATIGUE_REST_THRESHOLD_MIN
+        decay = 0.5 ** (excess_min / FATIGUE_REST_HALF_LIFE_MIN)
+        new_v = old_v * decay
+
+    if abs(new_v - old_v) < FATIGUE_DECAY_WRITE_THRESHOLD and new_v > 0:
+        # 收敛到阈值以下, 直接置 0 (避免极小残留)
+        if old_v > FATIGUE_DECAY_WRITE_THRESHOLD and new_v < FATIGUE_DECAY_WRITE_THRESHOLD:
+            cur["value"] = 0.0
+            cur["last_update_dt"] = format_dt_second(now_ms())
+            cur["version"] = 1
+            _save_fatigue(cur)
+            debug(f"[fatigue_decay] converged to 0 (was {old_v:.3f})")
+            return True
+        return False
+
+    cur["value"] = max(0.0, min(1.0, new_v))
+    cur["last_update_dt"] = format_dt_second(now_ms())
+    cur["version"] = 1
+    _save_fatigue(cur)
+    debug(
+        f"[fatigue_decay] applied: elapsed={elapsed_min:.1f}min "
+        f"value=[{old_v:+.3f}->{cur['value']:+.3f}]"
+    )
+    return True
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Paper history IO — save/{fp}_ai.json 读写 + mtime 缓存
+# ═══════════════════════════════════════════════════════════════════════
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # Paper history IO — save/{fp}_ai.json 读写 + mtime 缓存
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -578,23 +786,28 @@ def _filter_entries(data: list[dict], targets: set[str]) -> list[dict]:
 def load_chat_messages(limit: int = CHAT_MEMORY_LIMIT) -> list[dict]:
     """
     通用入口. OpenAI chat.completions 严格 messages:
-      [{role: "user"|"assistant", content: "[<ts_str> <label>] <content正文>"}]
-
-    label:
-      "用户说"         (role=user)
-      "Crystal主动说"  (role=assistant + entry.active=True)
-      "Crystal回复"    (role=assistant + entry.active=False)
+      [{role: "user"|"assistant", content: <正文>}, ...]
 
     死字段全去: ts / msg_fp / quotes
-    只剩 role + content (active 通过 label 体现在 content 头部).
+    活字段: role + content (entry.active 通过 role=assistant 区分, 不再嵌入 content)。
 
     来源: save/crystal_chat_ai.json (CHAT_FP), 取最近 limit 轮 (limit*2 条 entry).
+
+    【v3 2026-10-10 改造】不再嵌入 "[<ts_str> 用户说/Crystal主动说/Crystal回复]" 前缀。
+      旧版这么做的初衷是给 Crystal 感知时间和角色, 但 LLM 实际行为是:
+        1) OpenAI messages 协议本身不携带时间结构, 每个 message 的时间在 LLM
+           视野里是不可识别的;
+        2) LLM 看到这种格式后会"复读" —— 在自己的输出里也加上
+           "[2026-10-10 19:18 Crystal回复说] ..." 前缀, 污染落盘的 ResAsk.content。
+      时间感知由 system prompt 的 get_current_time_context() 统一提供 (绝对时间),
+      角色感知由 OpenAI 协议 role 字段 (user / assistant) 提供, 主动/被动语义
+      在 system prompt 的 chat_audit 块里以"已发/待观察"区分。
+      综上: per-message "[ts label]" 元信息是冗余 + 污染, 移除。
 
     异常/边界:
       - 文件不存在 / 解析失败 -> _read_json_safe 返回 default=[], 函数返回 []
       - data 不是 list (异常结构) -> []
-      - dt 字段缺失 -> 退化为 "[<label>] <body>"
-      - content 为空字符串 -> 仍发送 (label 仍有意义)
+      - content 为空字符串 -> 仍发送 (空 content 在 prompt 里就是空, 无副作用)
     """
     data = _read_json_safe(_paper_history_path(CHAT_FP), [])
     filtered = _filter_entries(data, {"ReqAsk", "ResAsk"})
@@ -603,19 +816,11 @@ def load_chat_messages(limit: int = CHAT_MEMORY_LIMIT) -> list[dict]:
     out: list[dict] = []
     for e in tail:
         role = _TYPE_TO_ROLE[e["type"]]
-        label = _resolve_label(role, e)
-        ts_str = e.get("dt", "")[:16]    # "MM-DD HH:MM" 或完整 dt 取前 16
         body = e.get("content") or ""
-        if ts_str:
-            out.append({
-                "role": role,
-                "content": f"[{ts_str} {label}] {body}",
-            })
-        else:
-            out.append({
-                "role": role,
-                "content": f"[{label}] {body}",
-            })
+        out.append({
+            "role": role,
+            "content": body,
+        })
     return out
 
 

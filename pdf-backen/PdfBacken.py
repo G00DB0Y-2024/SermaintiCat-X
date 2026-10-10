@@ -35,6 +35,10 @@ async def lifespan(app: FastAPI):
     from ai.ai_emotion import start_emotion_decay_thread
     start_emotion_decay_thread()
 
+    # 启动疲劳衰减后台守护线程 (与 emotion decay 独立, 周期 60s)
+    from ai.ai_emotion import start_fatigue_decay_thread
+    start_fatigue_decay_thread()
+
     # 启动时从 ai/memory/params.json.llm_configs 把 Main + Lint 两份 LLM
     # 配置读回到 ai_config._ai_config / ai_emotion.EMOTION_LLM_CONFIG。
     # 这样:

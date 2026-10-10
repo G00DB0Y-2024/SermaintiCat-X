@@ -1,27 +1,32 @@
 {
   "ask_count_by_fp": {
-    "crystal_chat": 343
+    "crystal_chat": 411
   },
   "emotion_vector": {
-    "valence": 0.28107527809636423,
-    "arousal": 0.5044332739349978,
-    "novelty": 0.07354095781243192,
+    "valence": 0.7182708573722231,
+    "arousal": 0.1244198022288907,
+    "novelty": 0.22062392236877765,
     "clarity": 1.0,
-    "last_update_dt": "2026-10-09 22:32:24",
+    "last_update_dt": "2026-10-10 20:43:17",
     "version": 1
   },
   "llm_configs": {
     "main": {
-      "api_key": "sk-7aa25dcdd11b4cd99646ea1c6c1a3d3e",
-      "api_url": "https://api.deepseek.com",
-      "model": "deepseek-flash",
-      "vision_model": "deepseek-flash",
-      "deepseek_thinking": true
+      "api_key": "sk-8lofrp826JoFBWwFA441CdBf3bB347779c34Cb967b0e84Db",
+      "api_url": "https://aihubmix.com/v1/chat/completions",
+      "model": "gemini-2.5-flash-lite-nothink",
+      "vision_model": "gemini-2.5-flash-lite-nothink",
+      "deepseek_thinking": false
     },
     "lint": {
       "api_key": "sk-8lofrp826JoFBWwFA441CdBf3bB347779c34Cb967b0e84Db",
       "api_url": "https://aihubmix.com/v1/chat/completions",
       "model": "gemini-2.5-flash-lite"
     }
+  },
+  "fatigue_vector": {
+    "value": 0.6002823812715782,
+    "last_update_dt": "2026-10-10 20:40:38",
+    "version": 1
   }
 }

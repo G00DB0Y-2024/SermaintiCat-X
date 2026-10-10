@@ -173,6 +173,11 @@ CHAT_AUDIT_LIMIT:  Final[int] = CHAT_LOCAL_LIMIT
 
 MEMORY_UPDATE_EVERY_N: Final[int] = 3  # = ASK_LOCAL_LIMIT // 2
 
+MEMORY_COMPRESS_EVERY_M: Final[int] = MEMORY_UPDATE_EVERY_N  
+
+COMPRESS_FRESH_HOURS:     Final[int] = 6   # 新鲜区上限 (0~6h 保持日记体)
+COMPRESS_TRANSIT_HOURS:   Final[int] = 72  # 过渡区上限 (6h~3d 短句, 3d+ 列表)
+
 
 
 
@@ -246,6 +251,84 @@ EMOTION_DECAY_FACTOR: Final[dict[str, float]] = {
     "clarity": 3.0,   # 等效半衰 12h: 认知/偏好最持久
 
 }
+
+
+# ═══════════════════════════════════════════════════════════════════════
+
+# 疲劳值参数 (FATIGUE)
+
+# ═══════════════════════════════════════════════════════════════════════
+
+#
+
+# 设计动机:
+
+#   Crystal 每次回复都消耗 "工作能量" — 反复短间隔高强度对话会让她疲倦。
+
+#   疲劳值会反馈影响 LLM 语气、回复长度、主动追问概率 (乘法折扣)。
+
+#   与 emotion_vector 平级落盘 (params.json.fatigue_vector),与情绪衰减解耦
+
+#   (情绪是半衰期单向, 疲劳是工作累积 + 休息恢复双态)。
+
+#
+
+# 触发:
+
+#   - 主答 (user ask 后 Crystal 出回复)        +FATIGUE_INCREMENT_MAIN
+
+#   - 主动追问 (split / layer2 followup 落盘)   +FATIGUE_INCREMENT_PROACTIVE
+
+#   - 仅 chat 侧累加 (与 emotion_llm_node / layer1_node 同约束)
+
+#
+
+# 衰减:
+
+#   - 距 last_update_dt < FATIGUE_REST_THRESHOLD_MIN  → 工作中, 不衰减
+
+#   - 距 last_update_dt ≥ FATIGUE_REST_THRESHOLD_MIN  → 休息态, 半衰期 FATIGUE_REST_HALF_LIFE_MIN
+
+#   - 后台守护线程: _fatigue_decay_thread, 周期 FATIGUE_DECAY_INTERVAL_SEC
+
+#
+
+# 影响 LLM 行为 (build_fatigue_context_block):
+#   - 2026-10-10 v3: 全 v 范围注入, 4 档连续 (精神饱满/尚有倦意/微疲/明显疲)。
+#     旧版: v < 0.30 → 不注入 (盲区, LLM 不知道 Crystal 当前状态)
+#     新版: v=0 也注入"精神饱满"档, v=1 注入"明显疲", 无突变。
+#     2026-10-10 v4: 删除 FATIGUE_CONTEXT_THRESHOLD 常量 (死代码)。
+
+# 影响主动追问概率 (ai_active _fatigue_discount_factor / split / layer2):
+#   - 2026-10-10 v3: 全 v 范围折扣, 公式 1 - FATIGUE_DISCOUNT_SLOPE * v
+#     旧版: v <= 0.30 → 1.0 (突变), v > 0.30 → 1 - 0.60 * (v - 0.30) (v=1.0 → 0.40)
+#     新版: 1 - 0.42 * v (v=0 → 1.0, v=0.30 → 0.874, v=1.0 → 0.58), 全 v 线性, 无突变。
+#     SLOPE 从 0.60 调到 0.42, 是为了保持 v=0.30 时的折扣与 v2 完全一致 (0.88)。
+#     副作用: 轻度疲劳(v=0.05)也有 ~2% 折扣, 几乎不影响体感但语义更连续。
+#   - 折扣 = 0.58 当 value = 1.0 (与 v2 的 0.40 比, 略松, 避免过度打折)
+#     2026-10-10 v4: 删除 FATIGUE_DISCOUNT_START 常量 (死代码)。
+
+FATIGUE_INCREMENT_MAIN:        Final[float] = 0.015  # 主答累加 (调小: 之前 0.04, 20 次主答就触发 hard stop 太敏感)
+
+FATIGUE_INCREMENT_PROACTIVE:   Final[float] = 0.025  # 主动追问累加 (主动比被动负担重, 但也比之前 0.06 调小)
+
+FATIGUE_DECAY_INTERVAL_SEC:    Final[int]   = 60     # 后台守护协程周期 (1min)
+
+FATIGUE_REST_THRESHOLD_MIN:    Final[int]   = 30     # 静默 30min 视为进入"休息态"
+
+FATIGUE_REST_HALF_LIFE_MIN:    Final[int]   = 20     # 休息态半衰期 (20min)
+
+FATIGUE_DECAY_WRITE_THRESHOLD: Final[float] = 0.01   # value 变化超过此值才写盘
+
+FATIGUE_DISCOUNT_SLOPE:        Final[float] = 0.5   # 2026-10-10 v3: 0.60→0.42, 保证 v=0.30 时仍打 0.88 折 (与 v2 一致)
+
+# 2026-10-10: 移除 FATIGUE_HARD_STOP 硬停止常量。
+#   旧: value ≥ 0.80 时 split + layer2 followup 路径直接跳过, 不再追问。
+#   新: 疲劳只通过 _fatigue_discount_factor 渐进折扣 + LLM 自身 should_continue 决策,
+#       全栈统一为"渐进衰减", 不再"突然不问"。
+#   副作用: 旧 params.json 里如果有 value > 0.80 的脏数据, 加载时仍走 _clamp 到 1.0,
+#           但不会再触发任何 hard stop 分支, 行为完全由折扣+LLM 接管。
+
 
 
 

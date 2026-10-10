@@ -18,7 +18,7 @@ import json
 import time
 
 from fastapi import APIRouter, HTTPException
-from .ai_io import _load_emotion
+from .ai_io import _get_fatigue_value, _load_emotion
 from .ai_emotion import EMOTION_LLM_CONFIG, update_emotion_llm_config
 
 from .ai_config import (
@@ -82,6 +82,29 @@ async def ai_emotion() -> dict:
         f"|max|={max(abs(emo.get(axis, 0.0)) for axis in ('valence','arousal','novelty','clarity')):.4f}"
     )
     return emo
+
+
+# ── /ai/fatigue ─────────────────────────────────────────────────────────
+
+@router.get("/fatigue")
+async def ai_fatigue() -> dict:
+    """
+    返回当前疲劳值, 供前端调试/可视化使用。
+
+    字段:
+      value          : 浮点 ∈ [0.0, 1.0], 0=精神, 1=极度疲劳
+      last_update_dt : "YYYY-MM-DD HH:MM:SS" 北京时间, 衰减锚点
+      version        : schema 版本
+    """
+    from .ai_io import _load_fatigue
+    fat = _load_fatigue()
+    debug(
+        f"[/ai/fatigue] hit → "
+        f"value={fat.get('value'):+.4f} "
+        f"dt={fat.get('last_update_dt')!r} "
+        f"v={fat.get('version')}"
+    )
+    return fat
 
 
 # ── /ai/emotion/config ─────────────────────────────────────────────────
