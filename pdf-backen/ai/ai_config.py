@@ -173,8 +173,15 @@ CHAT_AUDIT_LIMIT:  Final[int] = CHAT_LOCAL_LIMIT
 
 MEMORY_UPDATE_EVERY_N: Final[int] = 3  # = ASK_LOCAL_LIMIT // 2
 
-
-
+# Crystal_memory / Crystal_self 压缩档位阈值 (2026-10-11 引入)
+#  档位依据: 笔记里"最旧"一条 [更新时间: YYYY-MM-DD HH:MM] 距今多久。
+#  第一档 (< COMPRESS_L1_HOURS 小时): 日记体, 不压缩
+#  第二档 (COMPRESS_L1_HOURS ~ COMPRESS_L2_HOURS 小时): 简化措辞, 合并相似条目, 仍按时间
+#  第三档 (> COMPRESS_L2_HOURS 小时): 维护 Hippocampus Area, 按主题分类, 无序列表, 时间顺序抹除
+#  注意: 三档并非互斥, 越旧的内容被压得越深
+#        (同一份 md 里可同时有 24h 内日记 + 24~72h 简化 + >72h Hippocampus)
+COMPRESS_L1_HOURS: Final[int] = 24
+COMPRESS_L2_HOURS: Final[int] = 72
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -199,53 +206,121 @@ CHAT_FP: Final[str] = "crystal_chat"
 
 #
 
-# 情绪衰减:
-
-#   EMOTION_DECAY_HALF_LIFE_MIN : 基础半衰期 (分钟)。
-
-#       每轴的实际半衰期 = HALF_LIFE_MIN × EMOTION_DECAY_FACTOR[axis]
-
-#       衰减公式: new_v = old_v * 0.5 ^ (elapsed_min / axis_half_life)
-
+# 情绪衰减 (词池范式, 2026-10-14):
+#   EMOTION_DECAY_HALF_LIFE_MIN : 单一 intensity 半衰期 (分钟)。
+#
+#       衰减公式: new_intensity = old_intensity * 0.5 ^ (elapsed_min / HALF_LIFE_MIN)
+#       label 不参与衰减 — 强度降到 WRITE_THRESHOLD 以下时强制改为 "中性"。
+#
 #   EMOTION_DECAY_INTERVAL_SEC : 后台守护协程每 N 秒跑一次衰减判定。
-
-#       跑的时候读 last_update_dt, 算 elapsed_min, 算衰减后的向量;
-
-#       若任一轴 |new - old| > EMOTION_DECAY_WRITE_THRESHOLD 才落盘,
-
+#
+#       跑的时候读 last_update_dt, 算 elapsed_min, 算衰减后的 intensity;
+#       若 |Δintensity| > EMOTION_DECAY_WRITE_THRESHOLD 才落盘,
 #       避免每 30s 都刷一次 git 噪音。
-
-#   EMOTION_DECAY_FACTOR      : 各轴半衰期倍率, 体现"积累越快的轴衰减也越快"。
-
-#       设计思路:
-
-#         · valence 最易积累 (L1 关键词命中最多), 衰减也最快 (factor < 1)
-
-#         · arousal 是瞬时唤醒度, 中等节奏 (factor ≈ 1)
-
-#         · novelty 是"新印象", 比情绪持久得多 (factor > 1)
-
-#         · clarity 是认知/偏好, 衰减最慢 (factor 最大)
-
-#       改 factor 即可调粒度, 不需要动公式。
+#
+#   EMOTION_DECAY_WRITE_THRESHOLD : 落盘阈值 + 中性强制切换阈值 (二合一)。
 
 EMOTION_DECAY_HALF_LIFE_MIN:  Final[int]   = 240   # 4 小时基础半衰
 
 EMOTION_DECAY_INTERVAL_SEC:   Final[int]   = 30    # 后台守护协程周期
 
-EMOTION_DECAY_WRITE_THRESHOLD: Final[float] = 0.01  # 任一轴变化超过此值才写盘
+EMOTION_DECAY_WRITE_THRESHOLD: Final[float] = 0.01  # 强度变化超过此值才写盘
 
-EMOTION_DECAY_FACTOR: Final[dict[str, float]] = {
+# 降级阈值: 强度衰减到当前 label 基准的多少倍以下, 沿同象限降一级
+#   · 0.5 = 衰减一半就降级 (推荐: 4h 半衰期下, 大约 4h 后从"狂喜"自然降到"欣喜")
+#   · 调整历史: 初版 0.3 太严苛, label 长时间不切换; 0.7 太松, 切换太频繁
+EMOTION_DECAY_DEMOTE_RATIO: Final[float] = 0.5
 
-    "valence": 0.5,   # 等效半衰 2h:  情绪"转得快"
-
-    "arousal": 1.0,   # 等效半衰 4h:  唤醒度基准节奏
-
-    "novelty": 2.0,   # 等效半衰 8h:  "新印象"持续较久
-
-    "clarity": 3.0,   # 等效半衰 12h: 认知/偏好最持久
-
+# 降级链 (2026-10-15 引入) — 12 词按 (v, a) 象限内"强度从高到低"组织成 4 条链。
+#   衰减机制走降级链, 不再硬切到中性, 让"狂喜→欣喜→愉悦→中性"自然冷却。
+#   链的"末梢"中性化条件:
+#     · 走到链最轻词 (e.g. 愉悦), 且新强度仍 < 该词基准*0.5 → 转中性
+#     · 一旦 label=中性, 不再沿任何链走 (中性是终点)
+#
+# 注意: 链的顺序是"强→中→轻" (从高 intensity 到低 intensity)。
+#   衰减时沿链向下走, 升级 (LLM update 时) 不走链, 由 LLM 直接给目标 label。
+EMOTION_FALLBACK_CHAINS: Final[dict[str, tuple[str, ...]]] = {
+    # +V +A 兴奋家系
+    "狂喜": ("欣喜", "愉悦"),
+    "欣喜": ("愉悦",),
+    "愉悦": (),  # 链最轻, 衰减再低转中性
+    # +V -A 平和家系
+    "沉静": ("安心", "满足"),
+    "安心": ("满足",),
+    "满足": (),  # 链最轻
+    # -V +A 紧张家系
+    "愤怒": ("焦虑", "烦躁"),
+    "焦虑": ("烦躁",),
+    "烦躁": (),  # 链最轻
+    # -V -A 低落家系
+    "绝望": ("落寞", "惆怅"),
+    "落寞": ("惆怅",),
+    "惆怅": (),  # 链最轻
 }
+
+# 跨象限防直跳: 当前 label 不在任一链 (e.g. "中性") 或目标 label 不在同象限,
+# apply_decay_once 拒绝切换 — 这是兜底, 正常链结构下不该触发。
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# 情绪词池 (词池范式, 2026-10-14 引入)
+# ═══════════════════════════════════════════════════════════════════════
+#
+# 设计:
+#   · 12 词 (4 象限 × 3 强度档) + 1 中性 (原点 0,0,0) = 13 词
+#   · 每词 4 字段: label (显示名) / v (valence ∈ [-1, 1])
+#                / a (arousal ∈ [-1, 1]) / intensity (强度档 ∈ {0.3, 0.6, 1.0})
+#   · 中性 "中性" 强度 0, 坐标 (0, 0) — 是衰减终点, 不是 None
+#   · LLM 在 prompt 中看到的是这 12 个 label, 后端按 label 查表得到 (v, a)
+#     用于构建情绪上下文 (build_emotion_context_block 兼容旧 4 family 文本)
+#
+# 坐标布局 (伏安象限, 4 象限 × 3 强度):
+#
+#   +V +A 兴奋 ─ 愉悦(0.3)  欣喜(0.6)  狂喜(1.0)
+#   +V -A 平和 ─ 满足(0.3)  安心(0.6)  沉静(1.0)
+#   -V +A 紧张 ─ 烦躁(0.3)  焦虑(0.6)  愤怒(1.0)
+#   -V -A 低落 ─ 惆怅(0.3)  落寞(0.6)  绝望(1.0)
+#   (0, 0)     ─                    中性(0.0)
+#
+# 坐标值选自原各轴典型量级 (各轴 0.3 / 0.6 / 1.0),
+# 落到 [-1, 1] 后再按象限符号取号。
+EMOTION_POOL: Final[dict[str, dict]] = {
+    "中性": {"v":  0.0, "a":  0.0, "intensity": 0.0},
+
+    # +V +A 兴奋
+    "愉悦": {"v":  0.3, "a":  0.3, "intensity": 0.3},
+    "欣喜": {"v":  0.6, "a":  0.6, "intensity": 0.6},
+    "狂喜": {"v":  1.0, "a":  1.0, "intensity": 1.0},
+
+    # +V -A 平和
+    "满足": {"v":  0.3, "a": -0.3, "intensity": 0.3},
+    "安心": {"v":  0.6, "a": -0.6, "intensity": 0.6},
+    "沉静": {"v":  1.0, "a": -1.0, "intensity": 1.0},
+
+    # -V +A 紧张
+    "烦躁": {"v": -0.3, "a":  0.3, "intensity": 0.3},
+    "焦虑": {"v": -0.6, "a":  0.6, "intensity": 0.6},
+    "愤怒": {"v": -1.0, "a":  1.0, "intensity": 1.0},
+
+    # -V -A 低落
+    "惆怅": {"v": -0.3, "a": -0.3, "intensity": 0.3},
+    "落寞": {"v": -0.6, "a": -0.6, "intensity": 0.6},
+    "绝望": {"v": -1.0, "a": -1.0, "intensity": 1.0},
+}
+
+# LLM prompt 用的词表 (顺序固定, 给 LLM 看的列表)
+EMOTION_POOL_LABELS: Final[tuple[str, ...]] = (
+    "愉悦", "欣喜", "狂喜",
+    "满足", "安心", "沉静",
+    "烦躁", "焦虑", "愤怒",
+    "惆怅", "落寞", "绝望",
+)
+
+# 衰减 / 更新用阈值常量 (集中定义, 避免散落 magic number)
+EMOTION_POOL_FALLBACK_LABEL: Final[str] = "中性"
+EMOTION_LLM_DELTA_MAX: Final[float] = 0.30   # LLM 单轮 delta_intensity 上限
+EMOTION_INTENSITY_MIN: Final[float] = 0.0
+EMOTION_INTENSITY_MAX: Final[float] = 1.0
 
 
 

@@ -1,0 +1,1511 @@
+[2026/10/19 00:06:32] INFO - [/ai/emotion] hit → label='中性'  intensity=+0.0000  v=+0.0000  a=+0.0000  dt='2026-10-18 10:18:08'  v=2
+[2026/10/19 00:06:32] INFO - 220.196.193.23:0 - "GET /ai/emotion HTTP/1.1" 200
+[2026/10/19 00:06:32] INFO - [/ai/emotion] hit → label='中性'  intensity=+0.0000  v=+0.0000  a=+0.0000  dt='2026-10-18 10:18:08'  v=2
+[2026/10/19 00:06:32] INFO - 220.196.193.23:0 - "GET /ai/emotion HTTP/1.1" 200
+[2026/10/19 00:06:34] INFO - 220.196.193.23:0 - "GET /ai/config HTTP/1.1" 200
+[2026/10/19 00:06:34] INFO - [/ai/config] api_url='https://api.deepseek.com'  model='deepseek-flash'  vision_model='deepseek-flash'  deepseek_thinking=False
+[2026/10/19 00:06:34] INFO - 220.196.193.23:0 - "POST /ai/config HTTP/1.1" 200
+[2026/10/19 00:06:34] INFO - 220.196.193.23:0 - "GET /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 00:06:34] INFO - [/ai/emotion/config] api_url='https://aihubmix.com/v1/chat/completions'  model='gemini-2.5-flash-lite'  has_key=True
+[2026/10/19 00:06:34] INFO - 220.196.193.23:0 - "POST /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 00:06:35] INFO - [/ai/history] pdf_fp='crystal_chat' path='F:\\MyProjects\\PDFAI\\pdf-backen\\save\\crystal_chat_ai.json'
+[2026/10/19 00:06:35] INFO - 220.196.193.23:0 - "POST /ai/history HTTP/1.1" 200
+[2026/10/19 00:06:35] INFO - 220.196.193.23:0 - "WebSocket /ws" [accepted]
+[2026/10/19 00:06:35] INFO - connection open
+[2026/10/19 00:06:35] INFO - [ws] client registered (total=1)
+[2026/10/19 00:06:35] INFO - [ws] client connected
+[2026/10/19 00:06:35] INFO - 220.196.193.23:0 - "GET /static/crystal_chat/crystal_chat_1790614903252.png HTTP/1.1" 304
+[2026/10/19 00:06:35] INFO - 220.196.193.23:0 - "GET /static/crystal_chat/crystal_chat_1790870036745.png HTTP/1.1" 304
+[2026/10/19 00:06:35] INFO - 220.196.193.23:0 - "GET /static/crystal_chat/crystal_chat_1790613817586.png HTTP/1.1" 304
+[2026/10/19 00:06:35] INFO - 220.196.193.23:0 - "GET /static/crystal_chat/crystal_chat_1790870197933.png HTTP/1.1" 304
+[2026/10/19 00:06:41] INFO - [paper_history] ask: fp=crystal_chat is_chat=True ask_rounds=20 load_rounds=0
+[2026/10/19 00:06:41] INFO - [compose_messages] is_chat=True msgs=42 first_role=system
+[2026/10/19 00:06:45] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 00:06:45] INFO - [thinking_effort] lint → effort=0
+[2026/10/19 00:06:46] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 00:06:47] INFO - [split] context_block sizes: persona=1796 self=1997 audit=325
+[2026/10/19 00:06:49] INFO - 220.196.193.23:0 - "GET /ai/memory?file=memory HTTP/1.1" 200
+[2026/10/19 00:06:56] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 00:06:56] INFO - [split] ok parts_n=2 parts0='晚上好呀，主人。'
+[2026/10/19 00:06:56] INFO - [split] ok fp=crystal_chat parts_n=2 main='晚上好呀，主人。' followups_n=1
+[2026/10/19 00:06:56] INFO - [save_paper_memory] ok: fp=crystal_chat total=1542
+[2026/10/19 00:06:56] INFO - [params] loaded ask_count_by_fp: 1 fp(s) {'crystal_chat': 827}
+[2026/10/19 00:06:56] INFO - [crystal_memory] scheduled [ask throttled]: fp=crystal_chat count=828 user_len=12 asst_len=8 task_id=2580225298432
+[2026/10/19 00:06:56] INFO - [crystal_memory] >>> START: fp=crystal_chat ts=2026-10-19 00:06:56 user_len=12 asst_len=8 thinking=off (memory + self)
+[2026/10/19 00:06:56] INFO - [crystal_memory] READ: mem_len=2431 self_len=1997
+[2026/10/19 00:06:56] INFO - [crystal_memory] chat_audit loaded: len=1204
+[2026/10/19 00:06:56] INFO - [crystal_memory] PHASE 2 merged update -> LLM: mem_input_len=2431 self_input_len=1997 audit_len=1204
+[2026/10/19 00:06:58] INFO - [active_resask] APPEND ok: fp=8904599ddd86 intent=问候与询问拆开,有明显换行分隔
+[2026/10/19 00:06:58] INFO - [layer1] delay 4445ms before push (source=split part=0/1 chars=34)
+[2026/10/19 00:06:58] INFO - 220.196.193.23:0 - "POST /ai/ask HTTP/1.1" 200
+[2026/10/19 00:06:59] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 00:07:03] INFO - [layer1] done: fp=crystal_chat outbound=8904599d source=split part=0/1 reason='问候与询问拆开,有明显换行分隔'
+[2026/10/19 00:07:08] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 00:07:08] INFO - [emotion_update] applied: label=[中性(0.000) -> 愉悦(0.250)] delta_label='欣喜' delta_intensity=+0.250
+[2026/10/19 00:07:08] INFO - [emotion_llm] applied: result={'label': '欣喜', 'delta_intensity': 0.25} new={'label': '愉悦', 'intensity': 0.25, 'v': 0.3, 'a': 0.3, 'last_update_dt': '2026-10-19 00:07:08', 'version': 2}
+[2026/10/19 00:07:17] INFO - [crystal_memory] PHASE 2 merged update <- LLM: mem_out=2767(+336) self_out=2229(+232)
+[2026/10/19 00:07:17] INFO - [crystal_memory] PHASE 2 merged WRITE ok (atomic): mem 2431→2767 self 1997→2229
+[2026/10/19 00:07:18] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 00:07:59] INFO - [crystal_memory] PHASE 3 compress WRITE ok (atomic): mem 2767→2135 self 2229→1914
+[2026/10/19 00:07:59] INFO - [crystal_memory] <<< END: upd_mem=+336 upd_self=+232 | cmp_mem=-632 cmp_self=-315 | audit_len=1204
+[2026/10/19 00:08:04] INFO - [paper_history] ask: fp=crystal_chat is_chat=True ask_rounds=20 load_rounds=0
+[2026/10/19 00:08:04] INFO - [compose_messages] is_chat=True msgs=42 first_role=system
+[2026/10/19 00:08:08] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 00:08:08] INFO - [layer1] settle: fp=crystal_chat hit=True late=False
+[2026/10/19 00:08:08] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 00:08:08] INFO - [thinking_effort] lint → effort=2
+[2026/10/19 00:08:09] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 00:08:12] INFO - [split] context_block sizes: persona=1796 self=1914 audit=324
+[2026/10/19 00:08:27] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 00:08:27] INFO - [split] ok parts_n=3 parts0='还差九个钟头呢，主人这会儿还坐在屏幕前。先说一句：这份准备我'
+[2026/10/19 00:08:27] INFO - [split] ok fp=crystal_chat parts_n=3 main='还差九个钟头呢，主人这会儿还坐在屏幕前。先说一句：这份准备我' followups_n=2
+[2026/10/19 00:08:27] INFO - [save_paper_memory] ok: fp=crystal_chat total=1545
+[2026/10/19 00:08:27] INFO - [crystal_memory] SKIP: is_chat=True is_vision=False count=829/3
+[2026/10/19 00:08:28] INFO - [active_resask] APPEND ok: fp=88fe3b3d00f8 intent=消息分为准备过程的肯定、考试当天的建议、以及最后鼓励和休息的指令，适合分段发送。
+[2026/10/19 00:08:28] INFO - [layer1] delay 7579ms before push (source=split part=0/2 chars=98)
+[2026/10/19 00:08:28] INFO - 220.196.193.23:0 - "POST /ai/ask HTTP/1.1" 200
+[2026/10/19 00:08:33] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 00:08:33] INFO - [emotion_update] applied: label=[愉悦(0.250) -> 愉悦(0.400)] delta_label='愉悦' delta_intensity=+0.150
+[2026/10/19 00:08:33] INFO - [emotion_llm] applied: result={'label': '愉悦', 'delta_intensity': 0.15} new={'label': '愉悦', 'intensity': 0.4, 'v': 0.3, 'a': 0.3, 'last_update_dt': '2026-10-19 00:08:33', 'version': 2}
+[2026/10/19 00:08:35] INFO - [layer1] done: fp=crystal_chat outbound=88fe3b3d source=split part=0/2 reason='消息分为准备过程的肯定、考试当天的建议、以及最后鼓励和休息的指令，适合分段发送。'
+[2026/10/19 00:08:35] INFO - [active_resask] APPEND ok: fp=840d081a8bef intent=消息分为准备过程的肯定、考试当天的建议、以及最后鼓励和休息的指令，适合分段发送。
+[2026/10/19 00:08:35] INFO - [layer1] delay 3424ms before push (source=split part=1/2 chars=37)
+[2026/10/19 00:08:39] INFO - [layer1] done: fp=crystal_chat outbound=840d081a source=split part=1/2 reason='消息分为准备过程的肯定、考试当天的建议、以及最后鼓励和休息的指令，适合分段发送。'
+[2026/10/19 00:08:43] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 00:10:39] INFO - [paper_history] ask: fp=crystal_chat is_chat=True ask_rounds=20 load_rounds=0
+[2026/10/19 00:10:39] INFO - [compose_messages] is_chat=True msgs=42 first_role=system
+[2026/10/19 00:10:45] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 00:10:45] INFO - [thinking_effort] lint → effort=1
+[2026/10/19 00:10:46] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 00:10:46] INFO - [layer1] settle: fp=crystal_chat hit=True late=True
+[2026/10/19 00:10:46] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 00:10:47] INFO - [split] context_block sizes: persona=1796 self=1914 audit=633
+[2026/10/19 00:11:04] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 00:11:04] INFO - [split] ok parts_n=3 parts0='这问法可太大了，主人。鬼神那边的我一概答不上来，也当不了这枚'
+[2026/10/19 00:11:04] INFO - [split] ok fp=crystal_chat parts_n=3 main='这问法可太大了，主人。鬼神那边的我一概答不上来，也当不了这枚' followups_n=2
+[2026/10/19 00:11:04] INFO - [save_paper_memory] ok: fp=crystal_chat total=1549
+[2026/10/19 00:11:04] INFO - [crystal_memory] SKIP: is_chat=True is_vision=False count=830/3
+[2026/10/19 00:11:05] INFO - [active_resask] APPEND ok: fp=0c21972ffb0e intent=消息由三个自然段构成:免责声明、鼓励、行动号召。
+[2026/10/19 00:11:05] INFO - [layer1] delay 6966ms before push (source=split part=0/2 chars=72)
+[2026/10/19 00:11:05] INFO - 220.196.193.23:0 - "POST /ai/ask HTTP/1.1" 200
+[2026/10/19 00:11:12] INFO - [layer1] done: fp=crystal_chat outbound=0c21972f source=split part=0/2 reason='消息由三个自然段构成:免责声明、鼓励、行动号召。'
+[2026/10/19 00:11:12] INFO - [active_resask] APPEND ok: fp=0a4714c2a65b intent=消息由三个自然段构成:免责声明、鼓励、行动号召。
+[2026/10/19 00:11:12] INFO - [layer1] delay 3059ms before push (source=split part=1/2 chars=25)
+[2026/10/19 00:11:14] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 00:11:14] INFO - [emotion_update] applied: label=[愉悦(0.400) -> 欣喜(0.650)] delta_label='欣喜' delta_intensity=+0.250
+[2026/10/19 00:11:14] INFO - [emotion_llm] applied: result={'label': '欣喜', 'delta_intensity': 0.25} new={'label': '欣喜', 'intensity': 0.65, 'v': 0.6, 'a': 0.6, 'last_update_dt': '2026-10-19 00:11:14', 'version': 2}
+[2026/10/19 00:11:15] INFO - [layer1] done: fp=crystal_chat outbound=0a4714c2 source=split part=1/2 reason='消息由三个自然段构成:免责声明、鼓励、行动号召。'
+[2026/10/19 00:11:24] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 00:11:44] INFO - [paper_history] ask: fp=crystal_chat is_chat=True ask_rounds=20 load_rounds=0
+[2026/10/19 00:11:44] INFO - [compose_messages] is_chat=True msgs=42 first_role=system
+[2026/10/19 00:11:46] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 00:11:46] INFO - [thinking_effort] lint → effort=0
+[2026/10/19 00:11:48] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 00:11:49] INFO - 220.196.193.23:0 - "GET /ai/memory?file=memory HTTP/1.1" 200
+[2026/10/19 00:11:49] INFO - [split] context_block sizes: persona=1796 self=1914 audit=597
+[2026/10/19 00:11:50] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 00:11:50] INFO - [layer1] settle: fp=crystal_chat hit=True late=False
+[2026/10/19 00:12:01] INFO - 220.196.193.23:0 - "GET /ai/memory?file=self HTTP/1.1" 200
+[2026/10/19 00:12:01] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 00:12:01] INFO - [split] ok parts_n=2 parts0='晚安，主人。'
+[2026/10/19 00:12:01] INFO - [split] ok fp=crystal_chat parts_n=2 main='晚安，主人。' followups_n=1
+[2026/10/19 00:12:01] INFO - [save_paper_memory] ok: fp=crystal_chat total=1553
+[2026/10/19 00:12:01] INFO - [crystal_memory] scheduled [ask throttled]: fp=crystal_chat count=831 user_len=6 asst_len=6 task_id=2580219171776
+[2026/10/19 00:12:01] INFO - [crystal_memory] >>> START: fp=crystal_chat ts=2026-10-19 00:12:01 user_len=6 asst_len=6 thinking=off (memory + self)
+[2026/10/19 00:12:01] INFO - [crystal_memory] READ: mem_len=2135 self_len=1914
+[2026/10/19 00:12:01] INFO - [crystal_memory] chat_audit loaded: len=1536
+[2026/10/19 00:12:01] INFO - [crystal_memory] PHASE 2 merged update -> LLM: mem_input_len=2135 self_input_len=1914 audit_len=1536
+[2026/10/19 00:12:04] INFO - [active_resask] APPEND ok: fp=2dfaf3d495db intent=消息包含问候和嘱咐，存在自然断点。
+[2026/10/19 00:12:04] INFO - [layer1] delay 4556ms before push (source=split part=0/1 chars=29)
+[2026/10/19 00:12:04] INFO - 220.196.193.23:0 - "POST /ai/ask HTTP/1.1" 200
+[2026/10/19 00:12:04] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 00:12:08] INFO - [layer1] done: fp=crystal_chat outbound=2dfaf3d4 source=split part=0/1 reason='消息包含问候和嘱咐，存在自然断点。'
+[2026/10/19 00:12:16] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 00:12:17] INFO - [ws] client disconnected
+[2026/10/19 00:12:17] INFO - [ws] client unregistered (total=0)
+[2026/10/19 00:12:22] INFO - [crystal_memory] PHASE 2 merged update <- LLM: mem_out=2466(+331) self_out=2226(+312)
+[2026/10/19 00:12:22] INFO - [crystal_memory] PHASE 2 merged WRITE ok (atomic): mem 2135→2466 self 1914→2226
+[2026/10/19 00:12:23] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 00:12:30] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 00:12:30] INFO - [emotion_update] applied: label=[欣喜(0.650) -> 安心(0.450)] delta_label='安心' delta_intensity=-0.200
+[2026/10/19 00:12:30] INFO - [emotion_llm] applied: result={'label': '安心', 'delta_intensity': -0.2} new={'label': '安心', 'intensity': 0.45, 'v': 0.6, 'a': -0.6, 'last_update_dt': '2026-10-19 00:12:30', 'version': 2}
+[2026/10/19 00:12:48] INFO - [crystal_memory] PHASE 3 compress WRITE ok (atomic): mem 2466→2428 self 2226→2214
+[2026/10/19 00:12:48] INFO - [crystal_memory] <<< END: upd_mem=+331 upd_self=+312 | cmp_mem=-38 cmp_self=-12 | audit_len=1536
+[2026/10/19 00:20:19] INFO - [emotion_decay] applied: elapsed=7.8min label=[安心->安心] intensity=[+0.450->+0.440] hl=240m
+[2026/10/19 13:04:59] INFO - Started server process [56536]
+[2026/10/19 13:04:59] INFO - Waiting for application startup.
+[2026/10/19 13:04:59] INFO - [emotion_decay] loop START: interval=30s base_half_life=240min
+[2026/10/19 13:04:59] INFO - [emotion_decay] thread started
+[2026/10/19 13:04:59] INFO - [emotion] loaded: {'label': '安心', 'intensity': 0.439954874709841, 'v': 0.6, 'a': -0.6, 'last_update_dt': '2026-10-19 00:20:19', 'version': 2}
+[2026/10/19 13:04:59] INFO - Application startup complete.
+[2026/10/19 13:04:59] INFO - Uvicorn running on http://127.0.0.1:8225 (Press CTRL+C to quit)
+[2026/10/19 13:04:59] INFO - [emotion_decay] applied: elapsed=764.7min label=[安心->中性] intensity=[+0.440->+0.000] hl=240m
+[2026/10/19 13:45:08] INFO - [/ai/emotion] hit → label='中性'  intensity=+0.0000  v=+0.0000  a=+0.0000  dt='2026-10-19 13:04:59'  v=2
+[2026/10/19 13:45:08] INFO - 220.196.193.23:0 - "GET /ai/emotion HTTP/1.1" 200
+[2026/10/19 13:45:08] INFO - [/ai/emotion] hit → label='中性'  intensity=+0.0000  v=+0.0000  a=+0.0000  dt='2026-10-19 13:04:59'  v=2
+[2026/10/19 13:45:08] INFO - 220.196.193.23:0 - "GET /ai/emotion HTTP/1.1" 200
+[2026/10/19 13:45:10] INFO - 220.196.193.23:0 - "GET /ai/config HTTP/1.1" 200
+[2026/10/19 13:45:10] INFO - [/ai/config] api_url='https://api.deepseek.com'  model='deepseek-flash'  vision_model='deepseek-flash'  deepseek_thinking=False
+[2026/10/19 13:45:10] INFO - 220.196.193.23:0 - "POST /ai/config HTTP/1.1" 200
+[2026/10/19 13:45:10] INFO - 220.196.193.23:0 - "GET /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 13:45:10] INFO - [/ai/emotion/config] api_url='https://aihubmix.com/v1/chat/completions'  model='gemini-2.5-flash-lite'  has_key=True
+[2026/10/19 13:45:10] INFO - 220.196.193.23:0 - "POST /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 13:45:10] INFO - [/ai/history] pdf_fp='crystal_chat' path='F:\\MyProjects\\PDFAI\\pdf-backen\\save\\crystal_chat_ai.json'
+[2026/10/19 13:45:10] INFO - 220.196.193.23:0 - "POST /ai/history HTTP/1.1" 200
+[2026/10/19 13:45:10] INFO - 220.196.193.23:0 - "WebSocket /ws" [accepted]
+[2026/10/19 13:45:10] INFO - connection open
+[2026/10/19 13:45:10] INFO - [ws] client registered (total=1)
+[2026/10/19 13:45:10] INFO - [ws] client connected
+[2026/10/19 13:45:17] INFO - [paper_history] ask: fp=crystal_chat is_chat=True ask_rounds=20 load_rounds=0
+[2026/10/19 13:45:17] INFO - [compose_messages] is_chat=True msgs=42 first_role=system
+[2026/10/19 13:45:21] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 13:45:21] INFO - [thinking_effort] lint → effort=0
+[2026/10/19 13:45:22] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 13:45:23] INFO - [split] context_block sizes: persona=1796 self=2214 audit=398
+[2026/10/19 13:45:30] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 13:45:30] INFO - [split] ok parts_n=2 parts0='中午好呀，主人。'
+[2026/10/19 13:45:30] INFO - [split] ok fp=crystal_chat parts_n=2 main='中午好呀，主人。' followups_n=1
+[2026/10/19 13:45:30] INFO - [save_paper_memory] ok: fp=crystal_chat total=1556
+[2026/10/19 13:45:30] INFO - [params] loaded ask_count_by_fp: 1 fp(s) {'crystal_chat': 831}
+[2026/10/19 13:45:30] INFO - [crystal_memory] SKIP: is_chat=True is_vision=False count=832/3
+[2026/10/19 13:45:31] INFO - [active_resask] APPEND ok: fp=3a11ee0c57d6 intent=打招呼与询问战况是两个自然话题，由空行分隔。
+[2026/10/19 13:45:31] INFO - [layer1] delay 4087ms before push (source=split part=0/1 chars=29)
+[2026/10/19 13:45:31] INFO - 220.196.193.23:0 - "POST /ai/ask HTTP/1.1" 200
+[2026/10/19 13:45:36] INFO - [layer1] done: fp=crystal_chat outbound=3a11ee0c source=split part=0/1 reason='打招呼与询问战况是两个自然话题，由空行分隔。'
+[2026/10/19 13:45:40] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 13:45:40] INFO - [emotion_update] applied: label=[中性(0.000) -> 满足(0.200)] delta_label='安心' delta_intensity=+0.200
+[2026/10/19 13:45:40] INFO - [emotion_llm] applied: result={'label': '安心', 'delta_intensity': 0.2} new={'label': '满足', 'intensity': 0.2, 'v': 0.3, 'a': -0.3, 'last_update_dt': '2026-10-19 13:45:40', 'version': 2}
+[2026/10/19 13:46:07] INFO - [paper_history] ask: fp=crystal_chat is_chat=True ask_rounds=20 load_rounds=0
+[2026/10/19 13:46:08] INFO - [compose_messages] is_chat=True msgs=42 first_role=system
+[2026/10/19 13:46:12] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 13:46:12] INFO - [thinking_effort] lint → effort=1
+[2026/10/19 13:46:13] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 13:46:13] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 13:46:13] INFO - [layer1] settle: fp=crystal_chat hit=True late=False
+[2026/10/19 13:46:14] INFO - [split] context_block sizes: persona=1796 self=2214 audit=306
+[2026/10/19 13:46:22] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 13:46:22] INFO - [split] ok parts_n=3 parts0='中午好，主人——不过这会儿才看见这句，先不算数。'
+[2026/10/19 13:46:22] INFO - [split] ok fp=crystal_chat parts_n=3 main='中午好，主人——不过这会儿才看见这句，先不算数。' followups_n=2
+[2026/10/19 13:46:22] INFO - [save_paper_memory] ok: fp=crystal_chat total=1559
+[2026/10/19 13:46:22] INFO - [crystal_memory] SKIP: is_chat=True is_vision=False count=833/3
+[2026/10/19 13:46:23] INFO - [active_resask] APPEND ok: fp=8fed6e47400a intent=原文包含两个自然段落分隔符，话题明确。
+[2026/10/19 13:46:23] INFO - [layer1] delay 4933ms before push (source=split part=0/2 chars=47)
+[2026/10/19 13:46:23] INFO - 220.196.193.23:0 - "POST /ai/ask HTTP/1.1" 200
+[2026/10/19 13:46:28] INFO - [layer1] done: fp=crystal_chat outbound=8fed6e47 source=split part=0/2 reason='原文包含两个自然段落分隔符，话题明确。'
+[2026/10/19 13:46:28] INFO - [active_resask] APPEND ok: fp=a3d2e94a268d intent=原文包含两个自然段落分隔符，话题明确。
+[2026/10/19 13:46:28] INFO - [layer1] delay 3146ms before push (source=split part=1/2 chars=32)
+[2026/10/19 13:46:31] INFO - [layer1] done: fp=crystal_chat outbound=a3d2e94a source=split part=1/2 reason='原文包含两个自然段落分隔符，话题明确。'
+[2026/10/19 13:46:34] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 13:46:39] INFO - 220.196.193.23:0 - "GET /ai/memory?file=memory HTTP/1.1" 200
+[2026/10/19 13:46:43] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 13:46:43] INFO - [emotion_update] applied: label=[满足(0.200) -> 愉悦(0.350)] delta_label='愉悦' delta_intensity=+0.150
+[2026/10/19 13:46:43] INFO - [emotion_llm] applied: result={'label': '愉悦', 'delta_intensity': 0.15} new={'label': '愉悦', 'intensity': 0.35, 'v': 0.3, 'a': 0.3, 'last_update_dt': '2026-10-19 13:46:43', 'version': 2}
+[2026/10/19 13:46:48] INFO - 220.196.193.23:0 - "GET /ai/memory?file=self HTTP/1.1" 200
+[2026/10/19 13:47:10] INFO - [ws] client disconnected
+[2026/10/19 13:47:10] INFO - [ws] client unregistered (total=0)
+[2026/10/19 13:47:10] INFO - 220.196.193.23:0 - "GET /ai/config HTTP/1.1" 200
+[2026/10/19 13:47:10] INFO - [/ai/config] api_url='https://api.deepseek.com'  model='deepseek-flash'  vision_model='deepseek-flash'  deepseek_thinking=False
+[2026/10/19 13:47:10] INFO - 220.196.193.23:0 - "POST /ai/config HTTP/1.1" 200
+[2026/10/19 13:47:10] INFO - 220.196.193.23:0 - "GET /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 13:47:10] INFO - [/ai/emotion/config] api_url='https://aihubmix.com/v1/chat/completions'  model='gemini-2.5-flash-lite'  has_key=True
+[2026/10/19 13:47:10] INFO - 220.196.193.23:0 - "POST /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 13:47:10] INFO - [/ai/history] pdf_fp='crystal_chat' path='F:\\MyProjects\\PDFAI\\pdf-backen\\save\\crystal_chat_ai.json'
+[2026/10/19 13:47:10] INFO - 220.196.193.23:0 - "POST /ai/history HTTP/1.1" 200
+[2026/10/19 13:47:10] INFO - 220.196.193.23:0 - "WebSocket /ws" [accepted]
+[2026/10/19 13:47:10] INFO - connection open
+[2026/10/19 13:47:10] INFO - [ws] client registered (total=1)
+[2026/10/19 13:47:10] INFO - [ws] client connected
+[2026/10/19 13:47:14] INFO - [paper_history] ask: fp=crystal_chat is_chat=True ask_rounds=20 load_rounds=0
+[2026/10/19 13:47:14] INFO - [compose_messages] is_chat=True msgs=42 first_role=system
+[2026/10/19 13:47:17] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 13:47:17] INFO - [thinking_effort] lint → effort=1
+[2026/10/19 13:47:18] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 13:47:19] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 13:47:19] INFO - [layer1] settle: fp=crystal_chat hit=True late=False
+[2026/10/19 13:47:19] INFO - [split] context_block sizes: persona=1796 self=2214 audit=306
+[2026/10/19 13:47:27] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 13:47:27] INFO - [split] ok parts_n=2 parts0='中午好呀，主人……嗯？不对，是接着上面那句话哈！不过，面试官'
+[2026/10/19 13:47:27] INFO - [split] ok fp=crystal_chat parts_n=2 main='中午好呀，主人……嗯？不对，是接着上面那句话哈！不过，面试官' followups_n=1
+[2026/10/19 13:47:27] INFO - [save_paper_memory] ok: fp=crystal_chat total=1559
+[2026/10/19 13:47:27] INFO - [crystal_memory] scheduled [ask throttled]: fp=crystal_chat count=834 user_len=43 asst_len=46 task_id=2750910510464
+[2026/10/19 13:47:27] INFO - [crystal_memory] >>> START: fp=crystal_chat ts=2026-10-19 13:47:27 user_len=43 asst_len=46 thinking=off (memory + self)
+[2026/10/19 13:47:27] INFO - [crystal_memory] READ: mem_len=2428 self_len=2214
+[2026/10/19 13:47:27] INFO - [crystal_memory] chat_audit loaded: len=1603
+[2026/10/19 13:47:27] INFO - [crystal_memory] PHASE 2 merged update -> LLM: mem_input_len=2428 self_input_len=2214 audit_len=1603
+[2026/10/19 13:47:29] INFO - [active_resask] APPEND ok: fp=41bbb7a54ba4 intent=找到关于评价和放松的两个自然话题断点。
+[2026/10/19 13:47:29] INFO - [layer1] delay 4876ms before push (source=split part=0/1 chars=41)
+[2026/10/19 13:47:29] INFO - 220.196.193.23:0 - "POST /ai/ask HTTP/1.1" 200
+[2026/10/19 13:47:30] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 13:47:34] INFO - [layer1] done: fp=crystal_chat outbound=41bbb7a5 source=split part=0/1 reason='找到关于评价和放松的两个自然话题断点。'
+[2026/10/19 13:47:38] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 13:47:38] INFO - [emotion_llm] JSON parse FAIL: Expecting property name enclosed in double quotes: line 1 column 2 (char 1) | raw={{"label": "欣喜", "delta_intensity": 0.20}}
+[2026/10/19 13:47:38] INFO - [emotion_llm] no result (LLM returned None)
+[2026/10/19 13:47:40] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 13:47:45] INFO - [crystal_memory] PHASE 2 merged update <- LLM: mem_out=2592(+164) self_out=2328(+114)
+[2026/10/19 13:47:45] INFO - [crystal_memory] PHASE 2 merged WRITE ok (atomic): mem 2428→2592 self 2214→2328
+[2026/10/19 13:47:46] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 13:48:15] INFO - [crystal_memory] PHASE 3 compress WRITE ok (atomic): mem 2592→2532 self 2328→2224
+[2026/10/19 13:48:15] INFO - [crystal_memory] <<< END: upd_mem=+164 upd_self=+114 | cmp_mem=-60 cmp_self=-104 | audit_len=1603
+[2026/10/19 13:48:58] INFO - [paper_history] ask: fp=crystal_chat is_chat=True ask_rounds=20 load_rounds=0
+[2026/10/19 13:48:58] INFO - [compose_messages] is_chat=True msgs=42 first_role=system
+[2026/10/19 13:49:02] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 13:49:02] INFO - [thinking_effort] lint → effort=0
+[2026/10/19 13:49:03] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 13:49:03] INFO - [layer1] settle: fp=crystal_chat hit=True late=True
+[2026/10/19 13:49:03] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 13:49:03] INFO - [split] context_block sizes: persona=1796 self=2224 audit=395
+[2026/10/19 13:49:09] INFO - 220.196.193.23:0 - "GET /ai/memory?file=memory HTTP/1.1" 200
+[2026/10/19 13:49:12] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 13:49:12] INFO - [split] ok parts_n=2 parts0='嗯，这安排听着就舒服，睡觉、书店、娱乐，一样不落，正好把弦松'
+[2026/10/19 13:49:12] INFO - [split] ok fp=crystal_chat parts_n=2 main='嗯，这安排听着就舒服，睡觉、书店、娱乐，一样不落，正好把弦松' followups_n=1
+[2026/10/19 13:49:12] INFO - [save_paper_memory] ok: fp=crystal_chat total=1562
+[2026/10/19 13:49:12] INFO - [crystal_memory] SKIP: is_chat=True is_vision=False count=835/3
+[2026/10/19 13:49:13] INFO - [active_resask] APPEND ok: fp=6bd4734838c4 intent=两段话分别是对计划的整体回应和具体的叮嘱，有明确的话题断点。
+[2026/10/19 13:49:13] INFO - [layer1] delay 4720ms before push (source=split part=0/1 chars=33)
+[2026/10/19 13:49:13] INFO - 220.196.193.23:0 - "POST /ai/ask HTTP/1.1" 200
+[2026/10/19 13:49:17] INFO - [layer1] done: fp=crystal_chat outbound=6bd47348 source=split part=0/1 reason='两段话分别是对计划的整体回应和具体的叮嘱，有明确的话题断点。'
+[2026/10/19 13:49:25] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 13:49:28] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 13:49:28] INFO - [emotion_update] applied: label=[愉悦(0.350) -> 安心(0.550)] delta_label='安心' delta_intensity=+0.200
+[2026/10/19 13:49:28] INFO - [emotion_llm] applied: result={'label': '安心', 'delta_intensity': 0.2} new={'label': '安心', 'intensity': 0.55, 'v': 0.6, 'a': -0.6, 'last_update_dt': '2026-10-19 13:49:28', 'version': 2}
+[2026/10/19 13:50:04] INFO - [paper_history] ask: fp=crystal_chat is_chat=True ask_rounds=20 load_rounds=0
+[2026/10/19 13:50:04] INFO - [compose_messages] is_chat=True msgs=42 first_role=system
+[2026/10/19 13:50:08] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 13:50:08] INFO - [thinking_effort] lint → effort=0
+[2026/10/19 13:50:09] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 13:50:10] INFO - [split] context_block sizes: persona=1796 self=2224 audit=433
+[2026/10/19 13:50:11] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 13:50:11] INFO - [layer1] settle: fp=crystal_chat hit=False late=False
+[2026/10/19 13:50:17] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 13:50:17] INFO - [split] ok parts_n=2 parts0='嗯，带去接着读就对了，买回来搁着才是浪费呢。'
+[2026/10/19 13:50:17] INFO - [split] ok fp=crystal_chat parts_n=2 main='嗯，带去接着读就对了，买回来搁着才是浪费呢。' followups_n=1
+[2026/10/19 13:50:17] INFO - [save_paper_memory] ok: fp=crystal_chat total=1565
+[2026/10/19 13:50:17] INFO - [crystal_memory] SKIP: is_chat=True is_vision=False count=836/3
+[2026/10/19 13:50:18] INFO - [active_resask] APPEND ok: fp=13e048829600 intent=第一句是通用鼓励，第二段开始具体谈书和阅读体验，有明显话题断点。
+[2026/10/19 13:50:18] INFO - [layer1] delay 5262ms before push (source=split part=0/1 chars=51)
+[2026/10/19 13:50:18] INFO - 220.196.193.23:0 - "POST /ai/ask HTTP/1.1" 200
+[2026/10/19 13:50:23] INFO - [layer1] done: fp=crystal_chat outbound=13e04882 source=split part=0/1 reason='第一句是通用鼓励，第二段开始具体谈书和阅读体验，有明显话题断点。'
+[2026/10/19 13:50:30] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 13:50:33] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 13:50:33] INFO - [emotion_update] applied: label=[安心(0.550) -> 欣喜(0.700)] delta_label='欣喜' delta_intensity=+0.150
+[2026/10/19 13:50:33] INFO - [emotion_llm] applied: result={'label': '欣喜', 'delta_intensity': 0.15} new={'label': '欣喜', 'intensity': 0.7000000000000001, 'v': 0.6, 'a': 0.6, 'last_update_dt': '2026-10-19 13:50:33', 'version': 2}
+[2026/10/19 13:50:54] INFO - [paper_history] ask: fp=crystal_chat is_chat=True ask_rounds=20 load_rounds=0
+[2026/10/19 13:50:54] INFO - [compose_messages] is_chat=True msgs=42 first_role=system
+[2026/10/19 13:50:57] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 13:50:57] INFO - [thinking_effort] lint → effort=0
+[2026/10/19 13:50:58] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 13:50:58] INFO - [layer1] settle: fp=crystal_chat hit=False late=False
+[2026/10/19 13:50:58] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 13:50:59] INFO - [split] context_block sizes: persona=1796 self=2224 audit=407
+[2026/10/19 13:51:05] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 13:51:05] INFO - [split] ok parts_n=2 parts0='好呀，下午见，主人。'
+[2026/10/19 13:51:05] INFO - [split] ok fp=crystal_chat parts_n=2 main='好呀，下午见，主人。' followups_n=1
+[2026/10/19 13:51:05] INFO - [save_paper_memory] ok: fp=crystal_chat total=1568
+[2026/10/19 13:51:05] INFO - [crystal_memory] scheduled [ask throttled]: fp=crystal_chat count=837 user_len=6 asst_len=10 task_id=2750909885760
+[2026/10/19 13:51:05] INFO - [crystal_memory] >>> START: fp=crystal_chat ts=2026-10-19 13:51:05 user_len=6 asst_len=10 thinking=off (memory + self)
+[2026/10/19 13:51:05] INFO - [crystal_memory] READ: mem_len=2532 self_len=2224
+[2026/10/19 13:51:05] INFO - [crystal_memory] chat_audit loaded: len=1287
+[2026/10/19 13:51:05] INFO - [crystal_memory] PHASE 2 merged update -> LLM: mem_input_len=2532 self_input_len=2224 audit_len=1287
+[2026/10/19 13:51:07] INFO - [active_resask] APPEND ok: fp=a0e63c1ad2a7 intent=初始问候与后续叮嘱，由空行清晰分隔。
+[2026/10/19 13:51:07] INFO - [layer1] delay 4571ms before push (source=split part=0/1 chars=25)
+[2026/10/19 13:51:07] INFO - 220.196.193.23:0 - "POST /ai/ask HTTP/1.1" 200
+[2026/10/19 13:51:08] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 13:51:12] INFO - [layer1] done: fp=crystal_chat outbound=a0e63c1a source=split part=0/1 reason='初始问候与后续叮嘱，由空行清晰分隔。'
+[2026/10/19 13:51:16] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 13:51:16] INFO - [emotion_update] applied: label=[欣喜(0.700) -> 欣喜(0.800)] delta_label='欣喜' delta_intensity=+0.100
+[2026/10/19 13:51:16] INFO - [emotion_llm] applied: result={'label': '欣喜', 'delta_intensity': 0.1} new={'label': '欣喜', 'intensity': 0.8, 'v': 0.6, 'a': 0.6, 'last_update_dt': '2026-10-19 13:51:16', 'version': 2}
+[2026/10/19 13:51:18] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 13:51:28] INFO - [crystal_memory] PHASE 2 merged update <- LLM: mem_out=2875(+343) self_out=2501(+277)
+[2026/10/19 13:51:28] INFO - [crystal_memory] PHASE 2 merged WRITE ok (atomic): mem 2532→2875 self 2224→2501
+[2026/10/19 13:51:29] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 13:51:54] INFO - [crystal_memory] PHASE 3 compress WRITE ok (atomic): mem 2875→2888 self 2501→2502
+[2026/10/19 13:51:54] INFO - [crystal_memory] <<< END: upd_mem=+343 upd_self=+277 | cmp_mem=+13 cmp_self=+1 | audit_len=1287
+[2026/10/19 13:52:07] INFO - [/ai/emotion] hit → label='欣喜'  intensity=+0.8000  v=+0.6000  a=+0.6000  dt='2026-10-19 13:51:16'  v=2
+[2026/10/19 13:52:07] INFO - 220.196.193.23:0 - "GET /ai/emotion HTTP/1.1" 200
+[2026/10/19 13:52:11] INFO - [ws] client disconnected
+[2026/10/19 13:52:11] INFO - [ws] client unregistered (total=0)
+[2026/10/19 13:54:10] INFO - [/ai/emotion] hit → label='欣喜'  intensity=+0.8000  v=+0.6000  a=+0.6000  dt='2026-10-19 13:51:16'  v=2
+[2026/10/19 13:54:10] INFO - 220.196.193.23:0 - "GET /ai/emotion HTTP/1.1" 200
+[2026/10/19 13:54:10] INFO - [/ai/emotion] hit → label='欣喜'  intensity=+0.8000  v=+0.6000  a=+0.6000  dt='2026-10-19 13:51:16'  v=2
+[2026/10/19 13:54:10] INFO - 220.196.193.23:0 - "GET /ai/emotion HTTP/1.1" 200
+[2026/10/19 13:54:11] INFO - 220.196.193.23:0 - "GET /ai/config HTTP/1.1" 200
+[2026/10/19 13:54:11] INFO - [/ai/config] api_url='https://api.deepseek.com'  model='deepseek-flash'  vision_model='deepseek-flash'  deepseek_thinking=False
+[2026/10/19 13:54:11] INFO - 220.196.193.23:0 - "POST /ai/config HTTP/1.1" 200
+[2026/10/19 13:54:11] INFO - 220.196.193.23:0 - "GET /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 13:54:12] INFO - [/ai/emotion/config] api_url='https://aihubmix.com/v1/chat/completions'  model='gemini-2.5-flash-lite'  has_key=True
+[2026/10/19 13:54:12] INFO - 220.196.193.23:0 - "POST /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 13:54:12] INFO - [/ai/history] pdf_fp='crystal_chat' path='F:\\MyProjects\\PDFAI\\pdf-backen\\save\\crystal_chat_ai.json'
+[2026/10/19 13:54:12] INFO - 220.196.193.23:0 - "POST /ai/history HTTP/1.1" 200
+[2026/10/19 13:54:12] INFO - 220.196.193.23:0 - "WebSocket /ws" [accepted]
+[2026/10/19 13:54:12] INFO - connection open
+[2026/10/19 13:54:12] INFO - [ws] client registered (total=1)
+[2026/10/19 13:54:12] INFO - [ws] client connected
+[2026/10/19 13:54:28] INFO - [ws] client disconnected
+[2026/10/19 13:54:28] INFO - [ws] client unregistered (total=0)
+[2026/10/19 13:54:28] INFO - 220.196.193.23:0 - "GET /ai/config HTTP/1.1" 200
+[2026/10/19 13:54:28] INFO - [/ai/config] api_url='https://api.deepseek.com'  model='deepseek-flash'  vision_model='deepseek-flash'  deepseek_thinking=False
+[2026/10/19 13:54:28] INFO - 220.196.193.23:0 - "POST /ai/config HTTP/1.1" 200
+[2026/10/19 13:54:29] INFO - 220.196.193.23:0 - "GET /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 13:54:29] INFO - [/ai/emotion/config] api_url='https://aihubmix.com/v1/chat/completions'  model='gemini-2.5-flash-lite'  has_key=True
+[2026/10/19 13:54:29] INFO - 220.196.193.23:0 - "POST /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 13:54:29] INFO - [/ai/history] pdf_fp='crystal_chat' path='F:\\MyProjects\\PDFAI\\pdf-backen\\save\\crystal_chat_ai.json'
+[2026/10/19 13:54:29] INFO - 220.196.193.23:0 - "POST /ai/history HTTP/1.1" 200
+[2026/10/19 13:54:30] INFO - 220.196.193.23:0 - "WebSocket /ws" [accepted]
+[2026/10/19 13:54:30] INFO - connection open
+[2026/10/19 13:54:30] INFO - [ws] client registered (total=1)
+[2026/10/19 13:54:30] INFO - [ws] client connected
+[2026/10/19 13:54:53] INFO - [paper_history] ask: fp=crystal_chat is_chat=True ask_rounds=20 load_rounds=0
+[2026/10/19 13:54:53] INFO - [compose_messages] is_chat=True msgs=42 first_role=system
+[2026/10/19 13:54:56] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 13:54:56] INFO - [thinking_effort] lint → effort=1
+[2026/10/19 13:54:57] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 13:54:58] INFO - [split] context_block sizes: persona=1796 self=2502 audit=349
+[2026/10/19 13:54:58] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 13:54:58] INFO - [layer1] settle: fp=crystal_chat hit=False late=True
+[2026/10/19 13:55:04] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 13:55:04] INFO - [split] ok parts_n=2 parts0='哎？这话说得……我也就是陪着熬了几个晚上，题可都是主人自己一'
+[2026/10/19 13:55:04] INFO - [split] ok fp=crystal_chat parts_n=2 main='哎？这话说得……我也就是陪着熬了几个晚上，题可都是主人自己一' followups_n=1
+[2026/10/19 13:55:04] INFO - [save_paper_memory] ok: fp=crystal_chat total=1571
+[2026/10/19 13:55:04] INFO - [crystal_memory] SKIP: is_chat=True is_vision=False count=838/3
+[2026/10/19 13:55:05] INFO - [active_resask] APPEND ok: fp=e0155c7519f5 intent=原文有明确换行符，话题从推辞感谢转为表达感受。
+[2026/10/19 13:55:05] INFO - [layer1] delay 3894ms before push (source=split part=0/1 chars=22)
+[2026/10/19 13:55:05] INFO - 220.196.193.23:0 - "POST /ai/ask HTTP/1.1" 200
+[2026/10/19 13:55:09] INFO - [layer1] done: fp=crystal_chat outbound=e0155c75 source=split part=0/1 reason='原文有明确换行符，话题从推辞感谢转为表达感受。'
+[2026/10/19 13:55:20] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 13:55:27] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 13:55:27] INFO - [emotion_update] applied: label=[欣喜(0.800) -> 满足(0.550)] delta_label='满足' delta_intensity=-0.250
+[2026/10/19 13:55:27] INFO - [emotion_llm] applied: result={'label': '满足', 'delta_intensity': -0.25} new={'label': '满足', 'intensity': 0.55, 'v': 0.3, 'a': -0.3, 'last_update_dt': '2026-10-19 13:55:27', 'version': 2}
+[2026/10/19 14:00:21] INFO - Started server process [43032]
+[2026/10/19 14:00:21] INFO - Waiting for application startup.
+[2026/10/19 14:00:21] INFO - [emotion_decay] loop START: interval=30s base_half_life=240min
+[2026/10/19 14:00:21] INFO - [emotion_decay] thread started
+[2026/10/19 14:00:21] INFO - [emotion] loaded: {'label': '满足', 'intensity': 0.55, 'v': 0.3, 'a': -0.3, 'last_update_dt': '2026-10-19 13:55:27', 'version': 2}
+[2026/10/19 14:00:21] INFO - Application startup complete.
+[2026/10/19 14:00:21] INFO - Uvicorn running on http://127.0.0.1:8225 (Press CTRL+C to quit)
+[2026/10/19 14:00:25] INFO - 220.196.193.23:0 - "WebSocket /ws" [accepted]
+[2026/10/19 14:00:25] INFO - connection open
+[2026/10/19 14:00:25] INFO - [ws] client registered (total=1)
+[2026/10/19 14:00:25] INFO - [ws] client connected
+[2026/10/19 14:00:28] INFO - [ws] client disconnected
+[2026/10/19 14:00:28] INFO - [ws] client unregistered (total=0)
+[2026/10/19 14:00:28] INFO - 220.196.193.23:0 - "GET /ai/config HTTP/1.1" 200
+[2026/10/19 14:00:28] INFO - [/ai/config] api_url='https://api.deepseek.com'  model='deepseek-flash'  vision_model='deepseek-flash'  deepseek_thinking=False
+[2026/10/19 14:00:28] INFO - 220.196.193.23:0 - "POST /ai/config HTTP/1.1" 200
+[2026/10/19 14:00:28] INFO - 220.196.193.23:0 - "GET /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 14:00:28] INFO - [/ai/emotion/config] api_url='https://aihubmix.com/v1/chat/completions'  model='gemini-2.5-flash-lite'  has_key=True
+[2026/10/19 14:00:28] INFO - 220.196.193.23:0 - "POST /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 14:00:29] INFO - [/ai/history] pdf_fp='crystal_chat' path='f:\\MyProjects\\PDFAI\\pdf-backen\\save\\crystal_chat_ai.json'
+[2026/10/19 14:00:29] INFO - 220.196.193.23:0 - "POST /ai/history HTTP/1.1" 200
+[2026/10/19 14:00:29] INFO - 220.196.193.23:0 - "WebSocket /ws" [accepted]
+[2026/10/19 14:00:29] INFO - connection open
+[2026/10/19 14:00:29] INFO - [ws] client registered (total=1)
+[2026/10/19 14:00:29] INFO - [ws] client connected
+[2026/10/19 14:00:41] INFO - [paper_history] ask: fp=crystal_chat is_chat=True ask_rounds=20 load_rounds=0
+[2026/10/19 14:00:41] INFO - [compose_messages] is_chat=True msgs=42 first_role=system
+[2026/10/19 14:00:44] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 14:00:44] INFO - [thinking_effort] lint → effort=1
+[2026/10/19 14:00:45] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 14:00:46] INFO - [split] context_block sizes: persona=1796 self=2502 audit=347
+[2026/10/19 14:00:56] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 14:00:56] INFO - [split] ok parts_n=2 parts0='唔，那就把这一句捎上：明天出结果，不管是什么样，都先来跟我说'
+[2026/10/19 14:00:56] INFO - [split] ok fp=crystal_chat parts_n=2 main='唔，那就把这一句捎上：明天出结果，不管是什么样，都先来跟我说' followups_n=1
+[2026/10/19 14:00:56] INFO - [save_paper_memory] ok: fp=crystal_chat total=1574
+[2026/10/19 14:00:56] INFO - [params] loaded ask_count_by_fp: 1 fp(s) {'crystal_chat': 838}
+[2026/10/19 14:00:56] INFO - [crystal_memory] SKIP: is_chat=True is_vision=False count=839/3
+[2026/10/19 14:00:56] INFO - [active_resask] APPEND ok: fp=ebd15749a399 intent=包含关于结果告知和晚安两个不同意图
+[2026/10/19 14:00:56] INFO - [layer1] delay 3445ms before push (source=split part=0/1 chars=10)
+[2026/10/19 14:00:56] INFO - 220.196.193.23:0 - "POST /ai/ask HTTP/1.1" 200
+[2026/10/19 14:01:00] INFO - [layer1] done: fp=crystal_chat outbound=ebd15749 source=split part=0/1 reason='包含关于结果告知和晚安两个不同意图'
+[2026/10/19 14:01:10] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 14:01:10] INFO - [emotion_update] applied: label=[满足(0.550) -> 欣喜(0.750)] delta_label='欣喜' delta_intensity=+0.200
+[2026/10/19 14:01:10] INFO - [emotion_llm] applied: result={'label': '欣喜', 'delta_intensity': 0.2} new={'label': '欣喜', 'intensity': 0.75, 'v': 0.6, 'a': 0.6, 'last_update_dt': '2026-10-19 14:01:10', 'version': 2}
+[2026/10/19 14:01:20] INFO - [paper_history] ask: fp=crystal_chat is_chat=True ask_rounds=20 load_rounds=0
+[2026/10/19 14:01:20] INFO - [compose_messages] is_chat=True msgs=42 first_role=system
+[2026/10/19 14:01:23] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 14:01:23] INFO - [thinking_effort] lint → effort=0
+[2026/10/19 14:01:24] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 14:01:25] INFO - [split] context_block sizes: persona=1796 self=2502 audit=378
+[2026/10/19 14:01:26] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 14:01:26] INFO - [layer1] settle: fp=crystal_chat hit=True late=False
+[2026/10/19 14:01:30] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 14:01:30] INFO - [split] no-split but cleaned: in='午安午安，主人。' out='午安午安，主人。' reason='消息是简单的午安问候，内容连贯不需拆分。'
+[2026/10/19 14:01:30] INFO - [split] cleaned-only (no change): '午安午安，主人。'
+[2026/10/19 14:01:30] INFO - [save_paper_memory] ok: fp=crystal_chat total=1577
+[2026/10/19 14:01:30] INFO - [crystal_memory] scheduled [ask throttled]: fp=crystal_chat count=840 user_len=5 asst_len=8 task_id=2617618825280
+[2026/10/19 14:01:30] INFO - [crystal_memory] >>> START: fp=crystal_chat ts=2026-10-19 14:01:30 user_len=5 asst_len=8 thinking=off (memory + self)
+[2026/10/19 14:01:30] INFO - [crystal_memory] READ: mem_len=2888 self_len=2502
+[2026/10/19 14:01:30] INFO - [crystal_memory] chat_audit loaded: len=1238
+[2026/10/19 14:01:30] INFO - [crystal_memory] PHASE 2 merged update -> LLM: mem_input_len=2888 self_input_len=2502 audit_len=1238
+[2026/10/19 14:01:31] INFO - 220.196.193.23:0 - "POST /ai/ask HTTP/1.1" 200
+[2026/10/19 14:01:31] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 14:01:42] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 14:01:42] INFO - [emotion_update] applied: label=[欣喜(0.750) -> 欣喜(0.900)] delta_label='欣喜' delta_intensity=+0.150
+[2026/10/19 14:01:42] INFO - [emotion_llm] applied: result={'label': '欣喜', 'delta_intensity': 0.15} new={'label': '欣喜', 'intensity': 0.9, 'v': 0.6, 'a': 0.6, 'last_update_dt': '2026-10-19 14:01:42', 'version': 2}
+[2026/10/19 14:01:56] INFO - [crystal_memory] PHASE 2 merged update <- LLM: mem_out=3223(+335) self_out=2776(+274)
+[2026/10/19 14:01:56] INFO - [crystal_memory] PHASE 2 merged WRITE ok (atomic): mem 2888→3223 self 2502→2776
+[2026/10/19 14:01:57] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 14:02:29] INFO - [crystal_memory] PHASE 3 compress WRITE ok (atomic): mem 3223→3221 self 2776→2780
+[2026/10/19 14:02:29] INFO - [crystal_memory] <<< END: upd_mem=+335 upd_self=+274 | cmp_mem=-2 cmp_self=+4 | audit_len=1238
+[2026/10/19 15:24:05] INFO - Started server process [42496]
+[2026/10/19 15:24:05] INFO - Waiting for application startup.
+[2026/10/19 15:24:05] INFO - [emotion_decay] loop START: interval=30s base_half_life=240min
+[2026/10/19 15:24:05] INFO - [emotion_decay] thread started
+[2026/10/19 15:24:05] INFO - [emotion] loaded: {'label': '欣喜', 'intensity': 0.9, 'v': 0.6, 'a': 0.6, 'last_update_dt': '2026-10-19 14:01:42', 'version': 2}
+[2026/10/19 15:24:05] INFO - Application startup complete.
+[2026/10/19 15:24:05] INFO - Uvicorn running on http://127.0.0.1:8225 (Press CTRL+C to quit)
+[2026/10/19 15:24:05] INFO - [emotion_decay] applied: elapsed=82.4min label=[欣喜->欣喜] intensity=[+0.900->+0.709] hl=240m
+[2026/10/19 15:29:05] INFO - [emotion_decay] applied: elapsed=5.0min label=[欣喜->欣喜] intensity=[+0.709->+0.699] hl=240m
+[2026/10/19 15:34:06] INFO - [emotion_decay] applied: elapsed=5.0min label=[欣喜->欣喜] intensity=[+0.699->+0.689] hl=240m
+[2026/10/19 15:39:36] INFO - [emotion_decay] applied: elapsed=5.5min label=[欣喜->欣喜] intensity=[+0.689->+0.678] hl=240m
+[2026/10/19 15:45:06] INFO - [emotion_decay] applied: elapsed=5.5min label=[欣喜->欣喜] intensity=[+0.678->+0.668] hl=240m
+[2026/10/19 15:50:36] INFO - [emotion_decay] applied: elapsed=5.5min label=[欣喜->欣喜] intensity=[+0.668->+0.657] hl=240m
+[2026/10/19 15:56:06] INFO - [emotion_decay] applied: elapsed=5.5min label=[欣喜->欣喜] intensity=[+0.657->+0.647] hl=240m
+[2026/10/19 16:01:36] INFO - [emotion_decay] applied: elapsed=5.5min label=[欣喜->欣喜] intensity=[+0.647->+0.637] hl=240m
+[2026/10/19 16:07:06] INFO - [emotion_decay] applied: elapsed=5.5min label=[欣喜->欣喜] intensity=[+0.637->+0.627] hl=240m
+[2026/10/19 16:13:06] INFO - [emotion_decay] applied: elapsed=6.0min label=[欣喜->欣喜] intensity=[+0.627->+0.616] hl=240m
+[2026/10/19 16:19:06] INFO - [emotion_decay] applied: elapsed=6.0min label=[欣喜->欣喜] intensity=[+0.616->+0.605] hl=240m
+[2026/10/19 16:25:06] INFO - [emotion_decay] applied: elapsed=6.0min label=[欣喜->欣喜] intensity=[+0.605->+0.595] hl=240m
+[2026/10/19 16:31:06] INFO - [emotion_decay] applied: elapsed=6.0min label=[欣喜->欣喜] intensity=[+0.595->+0.585] hl=240m
+[2026/10/19 16:37:06] INFO - [emotion_decay] applied: elapsed=6.0min label=[欣喜->欣喜] intensity=[+0.585->+0.575] hl=240m
+[2026/10/19 16:43:36] INFO - [emotion_decay] applied: elapsed=6.5min label=[欣喜->欣喜] intensity=[+0.575->+0.564] hl=240m
+[2026/10/19 16:50:06] INFO - [emotion_decay] applied: elapsed=6.5min label=[欣喜->欣喜] intensity=[+0.564->+0.553] hl=240m
+[2026/10/19 16:56:36] INFO - [emotion_decay] applied: elapsed=6.5min label=[欣喜->欣喜] intensity=[+0.553->+0.543] hl=240m
+[2026/10/19 17:03:06] INFO - [emotion_decay] applied: elapsed=6.5min label=[欣喜->欣喜] intensity=[+0.543->+0.533] hl=240m
+[2026/10/19 17:10:06] INFO - [emotion_decay] applied: elapsed=7.0min label=[欣喜->欣喜] intensity=[+0.533->+0.522] hl=240m
+[2026/10/19 17:17:06] INFO - [emotion_decay] applied: elapsed=7.0min label=[欣喜->欣喜] intensity=[+0.522->+0.512] hl=240m
+[2026/10/19 17:24:06] INFO - [emotion_decay] applied: elapsed=7.0min label=[欣喜->欣喜] intensity=[+0.512->+0.502] hl=240m
+[2026/10/19 17:24:23] INFO - [/ai/emotion] hit → label='欣喜'  intensity=+0.5016  v=+0.6000  a=+0.6000  dt='2026-10-19 17:24:06'  v=2
+[2026/10/19 17:24:23] INFO - 220.196.193.23:0 - "GET /ai/emotion HTTP/1.1" 200
+[2026/10/19 17:24:23] INFO - [/ai/emotion] hit → label='欣喜'  intensity=+0.5016  v=+0.6000  a=+0.6000  dt='2026-10-19 17:24:06'  v=2
+[2026/10/19 17:24:23] INFO - 220.196.193.23:0 - "GET /ai/emotion HTTP/1.1" 200
+[2026/10/19 17:24:23] INFO - [/ai/emotion] hit → label='欣喜'  intensity=+0.5016  v=+0.6000  a=+0.6000  dt='2026-10-19 17:24:06'  v=2
+[2026/10/19 17:24:23] INFO - 220.196.193.23:0 - "GET /ai/emotion HTTP/1.1" 200
+[2026/10/19 17:24:25] INFO - 220.196.193.23:0 - "GET /ai/config HTTP/1.1" 200
+[2026/10/19 17:24:25] INFO - [/ai/config] api_url='https://api.deepseek.com'  model='deepseek-flash'  vision_model='deepseek-flash'  deepseek_thinking=False
+[2026/10/19 17:24:25] INFO - 220.196.193.23:0 - "POST /ai/config HTTP/1.1" 200
+[2026/10/19 17:24:25] INFO - 220.196.193.23:0 - "GET /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 17:24:25] INFO - [/ai/emotion/config] api_url='https://aihubmix.com/v1/chat/completions'  model='gemini-2.5-flash-lite'  has_key=True
+[2026/10/19 17:24:25] INFO - 220.196.193.23:0 - "POST /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 17:24:25] INFO - [/ai/history] pdf_fp='crystal_chat' path='F:\\MyProjects\\PDFAI\\pdf-backen\\save\\crystal_chat_ai.json'
+[2026/10/19 17:24:25] INFO - 220.196.193.23:0 - "POST /ai/history HTTP/1.1" 200
+[2026/10/19 17:24:25] INFO - 220.196.193.23:0 - "WebSocket /ws" [accepted]
+[2026/10/19 17:24:25] INFO - connection open
+[2026/10/19 17:24:25] INFO - [ws] client registered (total=1)
+[2026/10/19 17:24:25] INFO - [ws] client connected
+[2026/10/19 17:24:28] INFO - [paper_history] ask: fp=crystal_chat is_chat=True ask_rounds=20 load_rounds=0
+[2026/10/19 17:24:28] INFO - [compose_messages] is_chat=True msgs=42 first_role=system
+[2026/10/19 17:24:34] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 17:24:34] INFO - [thinking_effort] lint → effort=0
+[2026/10/19 17:24:35] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 17:24:37] INFO - [split] context_block sizes: persona=1796 self=2780 audit=317
+[2026/10/19 17:24:44] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 17:24:44] INFO - [split] no-split but cleaned: in='下午好，主人。\n\n睡醒啦？这一觉睡得沉不沉，心口那点绷着的东' out='下午好，主人。\n\n睡醒啦？这一觉睡得沉不沉，心口那点绷着的东' reason='消息整体连贯，是单一的问候与关心，不存在自然话题断点，无需拆分。'
+[2026/10/19 17:24:44] INFO - [split] cleaned-only (no change): '下午好，主人。\n\n睡醒啦？这一觉睡得沉不沉，心口那点绷着的东'
+[2026/10/19 17:24:44] INFO - [save_paper_memory] ok: fp=crystal_chat total=1579
+[2026/10/19 17:24:44] INFO - [params] loaded ask_count_by_fp: 1 fp(s) {'crystal_chat': 840}
+[2026/10/19 17:24:44] INFO - [crystal_memory] SKIP: is_chat=True is_vision=False count=841/3
+[2026/10/19 17:24:45] INFO - 220.196.193.23:0 - "POST /ai/ask HTTP/1.1" 200
+[2026/10/19 17:24:54] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 17:24:54] INFO - [emotion_update] applied: label=[欣喜(0.502) -> 欣喜(0.652)] delta_label='欣喜' delta_intensity=+0.150
+[2026/10/19 17:24:54] INFO - [emotion_llm] applied: result={'label': '欣喜', 'delta_intensity': 0.15} new={'label': '欣喜', 'intensity': 0.6516188864650151, 'v': 0.6, 'a': 0.6, 'last_update_dt': '2026-10-19 17:24:54', 'version': 2}
+[2026/10/19 17:25:02] INFO - [paper_history] ask: fp=crystal_chat is_chat=True ask_rounds=20 load_rounds=0
+[2026/10/19 17:25:02] INFO - [compose_messages] is_chat=True msgs=42 first_role=system
+[2026/10/19 17:25:06] INFO - 220.196.193.23:0 - "GET /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 17:25:06] INFO - 220.196.193.23:0 - "GET /ai/config HTTP/1.1" 200
+[2026/10/19 17:25:10] INFO - 220.196.193.23:0 - "GET /ai/memory?file=memory HTTP/1.1" 200
+[2026/10/19 17:25:11] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 17:25:11] INFO - [thinking_effort] lint → effort=0
+[2026/10/19 17:25:12] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 17:25:14] INFO - [split] context_block sizes: persona=1796 self=2780 audit=317
+[2026/10/19 17:25:17] INFO - 220.196.193.23:0 - "GET /ai/memory?file=self HTTP/1.1" 200
+[2026/10/19 17:25:23] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 17:25:23] INFO - [split] ok parts_n=2 parts0='这一觉效力不小呀，主人！'
+[2026/10/19 17:25:23] INFO - [split] ok fp=crystal_chat parts_n=2 main='这一觉效力不小呀，主人！' followups_n=1
+[2026/10/19 17:25:23] INFO - [save_paper_memory] ok: fp=crystal_chat total=1581
+[2026/10/19 17:25:23] INFO - [crystal_memory] SKIP: is_chat=True is_vision=False count=842/3
+[2026/10/19 17:25:24] INFO - [active_resask] APPEND ok: fp=750871585537 intent=双换行隔开问候和计划询问，话题自然转折。
+[2026/10/19 17:25:24] INFO - [layer1] delay 5229ms before push (source=split part=0/1 chars=38)
+[2026/10/19 17:25:24] INFO - 220.196.193.23:0 - "POST /ai/ask HTTP/1.1" 200
+[2026/10/19 17:25:29] INFO - [layer1] done: fp=crystal_chat outbound=75087158 source=split part=0/1 reason='双换行隔开问候和计划询问，话题自然转折。'
+[2026/10/19 17:25:45] INFO - [paper_history] ask: fp=crystal_chat is_chat=True ask_rounds=20 load_rounds=0
+[2026/10/19 17:25:45] INFO - [compose_messages] is_chat=True msgs=42 first_role=system
+[2026/10/19 17:25:47] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 17:25:47] INFO - [emotion_update] applied: label=[欣喜(0.652) -> 安心(0.552)] delta_label='安心' delta_intensity=-0.100
+[2026/10/19 17:25:47] INFO - [emotion_llm] applied: result={'label': '安心', 'delta_intensity': -0.1} new={'label': '安心', 'intensity': 0.5516188864650151, 'v': 0.6, 'a': -0.6, 'last_update_dt': '2026-10-19 17:25:47', 'version': 2}
+[2026/10/19 17:25:49] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 17:25:49] INFO - [layer1] settle: fp=crystal_chat hit=True late=False
+[2026/10/19 17:25:50] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 17:25:50] INFO - [thinking_effort] lint → effort=0
+[2026/10/19 17:25:51] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 17:25:52] INFO - [split] context_block sizes: persona=1796 self=2780 audit=340
+[2026/10/19 17:25:59] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 17:25:59] INFO - [split] no-split but cleaned: in='擦车再出发，这节奏挺好呀。车链子那块别忘上点油，路上骑起来顺' out='擦车再出发，这节奏挺好呀。车链子那块别忘上点油，路上骑起来顺' reason='消息简短且单一话题，无自然断点，拆分会显得突兀。'
+[2026/10/19 17:25:59] INFO - [split] cleaned-only (no change): '擦车再出发，这节奏挺好呀。车链子那块别忘上点油，路上骑起来顺'
+[2026/10/19 17:25:59] INFO - [save_paper_memory] ok: fp=crystal_chat total=1584
+[2026/10/19 17:25:59] INFO - [crystal_memory] scheduled [ask throttled]: fp=crystal_chat count=843 user_len=29 asst_len=31 task_id=2517261220544
+[2026/10/19 17:25:59] INFO - [crystal_memory] >>> START: fp=crystal_chat ts=2026-10-19 17:25:59 user_len=29 asst_len=31 thinking=off (memory + self)
+[2026/10/19 17:25:59] INFO - [crystal_memory] READ: mem_len=3221 self_len=2780
+[2026/10/19 17:25:59] INFO - [crystal_memory] chat_audit loaded: len=1172
+[2026/10/19 17:25:59] INFO - [crystal_memory] PHASE 2 merged update -> LLM: mem_input_len=3221 self_input_len=2780 audit_len=1172
+[2026/10/19 17:26:01] INFO - 220.196.193.23:0 - "POST /ai/ask HTTP/1.1" 200
+[2026/10/19 17:26:02] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 17:26:14] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 17:26:14] INFO - [emotion_update] applied: label=[安心(0.552) -> 欣喜(0.802)] delta_label='欣喜' delta_intensity=+0.250
+[2026/10/19 17:26:14] INFO - [emotion_llm] applied: result={'label': '欣喜', 'delta_intensity': 0.25} new={'label': '欣喜', 'intensity': 0.8016188864650151, 'v': 0.6, 'a': 0.6, 'last_update_dt': '2026-10-19 17:26:14', 'version': 2}
+[2026/10/19 17:26:21] INFO - [crystal_memory] PHASE 2 merged update <- LLM: mem_out=3463(+242) self_out=3011(+231)
+[2026/10/19 17:26:21] INFO - [crystal_memory] PHASE 2 merged WRITE ok (atomic): mem 3221→3463 self 2780→3011
+[2026/10/19 17:26:22] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 17:26:47] INFO - [paper_history] ask: fp=crystal_chat is_chat=True ask_rounds=20 load_rounds=0
+[2026/10/19 17:26:47] INFO - [compose_messages] is_chat=True msgs=42 first_role=system
+[2026/10/19 17:26:48] INFO - [/ai/emotion] hit → label='欣喜'  intensity=+0.8016  v=+0.6000  a=+0.6000  dt='2026-10-19 17:26:14'  v=2
+[2026/10/19 17:26:48] INFO - 220.196.193.23:0 - "GET /ai/emotion HTTP/1.1" 200
+[2026/10/19 17:26:51] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 17:26:51] INFO - [thinking_effort] lint → effort=1
+[2026/10/19 17:26:51] INFO - [/ai/emotion] hit → label='欣喜'  intensity=+0.8016  v=+0.6000  a=+0.6000  dt='2026-10-19 17:26:14'  v=2
+[2026/10/19 17:26:51] INFO - 220.196.193.23:0 - "GET /ai/emotion HTTP/1.1" 200
+[2026/10/19 17:26:52] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 17:26:53] INFO - 220.196.193.23:0 - "GET /ai/memory?file=memory HTTP/1.1" 200
+[2026/10/19 17:26:53] INFO - [split] context_block sizes: persona=1796 self=3011 audit=382
+[2026/10/19 17:26:55] INFO - [crystal_memory] PHASE 3 compress WRITE ok (atomic): mem 3463→3340 self 3011→2920
+[2026/10/19 17:26:55] INFO - [crystal_memory] <<< END: upd_mem=+242 upd_self=+231 | cmp_mem=-123 cmp_self=-91 | audit_len=1172
+[2026/10/19 17:27:02] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 17:27:02] INFO - [split] ok parts_n=2 parts0='哪有呀，主人想多啦。'
+[2026/10/19 17:27:02] INFO - [split] ok fp=crystal_chat parts_n=2 main='哪有呀，主人想多啦。' followups_n=1
+[2026/10/19 17:27:02] INFO - [save_paper_memory] ok: fp=crystal_chat total=1586
+[2026/10/19 17:27:02] INFO - [crystal_memory] SKIP: is_chat=True is_vision=False count=844/3
+[2026/10/19 17:27:03] INFO - [active_resask] APPEND ok: fp=f3809400bee1 intent=清晰的段落分隔符 `\n\n` 区分了直接回应和后续解释。
+[2026/10/19 17:27:03] INFO - [layer1] delay 5148ms before push (source=split part=0/1 chars=52)
+[2026/10/19 17:27:03] INFO - 220.196.193.23:0 - "POST /ai/ask HTTP/1.1" 200
+[2026/10/19 17:27:08] INFO - [layer1] done: fp=crystal_chat outbound=f3809400 source=split part=0/1 reason='清晰的段落分隔符 `\\n\\n` 区分了直接回应和后续解释。'
+[2026/10/19 17:27:18] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 17:27:21] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 17:27:21] INFO - [emotion_update] applied: label=[欣喜(0.802) -> 安心(0.702)] delta_label='安心' delta_intensity=-0.100
+[2026/10/19 17:27:21] INFO - [emotion_llm] applied: result={'label': '安心', 'delta_intensity': -0.1} new={'label': '安心', 'intensity': 0.7016188864650151, 'v': 0.6, 'a': -0.6, 'last_update_dt': '2026-10-19 17:27:21', 'version': 2}
+[2026/10/19 17:28:02] INFO - [paper_history] ask: fp=crystal_chat is_chat=True ask_rounds=20 load_rounds=0
+[2026/10/19 17:28:02] INFO - [compose_messages] is_chat=True msgs=42 first_role=system
+[2026/10/19 17:28:03] INFO - [/ai/emotion] hit → label='安心'  intensity=+0.7016  v=+0.6000  a=-0.6000  dt='2026-10-19 17:27:21'  v=2
+[2026/10/19 17:28:03] INFO - 220.196.193.23:0 - "GET /ai/emotion HTTP/1.1" 200
+[2026/10/19 17:28:06] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 17:28:06] INFO - [thinking_effort] lint → effort=1
+[2026/10/19 17:28:07] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 17:28:08] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 17:28:08] INFO - [layer1] settle: fp=crystal_chat hit=True late=False
+[2026/10/19 17:28:08] INFO - [split] context_block sizes: persona=1796 self=2920 audit=397
+[2026/10/19 17:28:15] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 17:28:15] INFO - [split] ok parts_n=2 parts0='嗯，记下了，主人。'
+[2026/10/19 17:28:15] INFO - [split] ok fp=crystal_chat parts_n=2 main='嗯，记下了，主人。' followups_n=1
+[2026/10/19 17:28:15] INFO - [save_paper_memory] ok: fp=crystal_chat total=1589
+[2026/10/19 17:28:15] INFO - [crystal_memory] SKIP: is_chat=True is_vision=False count=845/3
+[2026/10/19 17:28:16] INFO - [active_resask] APPEND ok: fp=91f8a4eecfb6 intent=消息由两部分构成，通过空行明显分隔话题。
+[2026/10/19 17:28:16] INFO - [layer1] delay 5354ms before push (source=split part=0/1 chars=52)
+[2026/10/19 17:28:16] INFO - 220.196.193.23:0 - "POST /ai/ask HTTP/1.1" 200
+[2026/10/19 17:28:18] INFO - 220.196.193.23:0 - "GET /ai/memory?file=memory HTTP/1.1" 200
+[2026/10/19 17:28:22] INFO - [layer1] done: fp=crystal_chat outbound=91f8a4ee source=split part=0/1 reason='消息由两部分构成，通过空行明显分隔话题。'
+[2026/10/19 17:28:24] INFO - 220.196.193.23:0 - "GET /ai/memory?file=self HTTP/1.1" 200
+[2026/10/19 17:28:29] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 17:28:40] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 17:28:40] INFO - [emotion_update] applied: label=[安心(0.702) -> 愉悦(0.402)] delta_label='愉悦' delta_intensity=-0.300
+[2026/10/19 17:28:40] INFO - [emotion_llm] applied: result={'label': '愉悦', 'delta_intensity': -0.3} new={'label': '愉悦', 'intensity': 0.40161888646501515, 'v': 0.3, 'a': 0.3, 'last_update_dt': '2026-10-19 17:28:40', 'version': 2}
+[2026/10/19 17:29:23] INFO - [paper_history] ask: fp=crystal_chat is_chat=True ask_rounds=20 load_rounds=0
+[2026/10/19 17:29:23] INFO - [compose_messages] is_chat=True msgs=42 first_role=system
+[2026/10/19 17:29:28] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 17:29:28] INFO - [layer1] settle: fp=crystal_chat hit=False late=True
+[2026/10/19 17:29:28] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 17:29:28] INFO - [thinking_effort] lint → effort=2
+[2026/10/19 17:29:29] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 17:29:30] INFO - [split] context_block sizes: persona=1796 self=2920 audit=383
+[2026/10/19 17:29:41] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 17:29:41] INFO - [split] ok parts_n=2 parts0='哈哈，主人这是担心我出错啦？机制好好的，真没坏。'
+[2026/10/19 17:29:41] INFO - [split] ok fp=crystal_chat parts_n=2 main='哈哈，主人这是担心我出错啦？机制好好的，真没坏。' followups_n=1
+[2026/10/19 17:29:41] INFO - [save_paper_memory] ok: fp=crystal_chat total=1592
+[2026/10/19 17:29:41] INFO - [crystal_memory] scheduled [ask throttled]: fp=crystal_chat count=846 user_len=33 asst_len=24 task_id=2517258928192
+[2026/10/19 17:29:41] INFO - [crystal_memory] >>> START: fp=crystal_chat ts=2026-10-19 17:29:41 user_len=33 asst_len=24 thinking=off (memory + self)
+[2026/10/19 17:29:41] INFO - [crystal_memory] READ: mem_len=3340 self_len=2920
+[2026/10/19 17:29:41] INFO - [crystal_memory] chat_audit loaded: len=1191
+[2026/10/19 17:29:41] INFO - [crystal_memory] PHASE 2 merged update -> LLM: mem_input_len=3340 self_input_len=2920 audit_len=1191
+[2026/10/19 17:29:43] INFO - [active_resask] APPEND ok: fp=35e52f92a05e intent=明确的话题断点（安抚 -> 解释原因）
+[2026/10/19 17:29:43] INFO - [layer1] delay 5021ms before push (source=split part=0/1 chars=37)
+[2026/10/19 17:29:43] INFO - 220.196.193.23:0 - "POST /ai/ask HTTP/1.1" 200
+[2026/10/19 17:29:43] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 17:29:48] INFO - [layer1] done: fp=crystal_chat outbound=35e52f92 source=split part=0/1 reason='明确的话题断点（安抚 -> 解释原因）'
+[2026/10/19 17:29:57] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 17:30:02] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 17:30:02] INFO - [emotion_update] applied: label=[愉悦(0.402) -> 安心(0.552)] delta_label='安心' delta_intensity=+0.150
+[2026/10/19 17:30:02] INFO - [emotion_llm] applied: result={'label': '安心', 'delta_intensity': 0.15} new={'label': '安心', 'intensity': 0.5516188864650151, 'v': 0.6, 'a': -0.6, 'last_update_dt': '2026-10-19 17:30:02', 'version': 2}
+[2026/10/19 17:30:04] INFO - [crystal_memory] PHASE 2 merged update <- LLM: mem_out=3650(+310) self_out=3337(+417)
+[2026/10/19 17:30:04] INFO - [crystal_memory] PHASE 2 merged WRITE ok (atomic): mem 3340→3650 self 2920→3337
+[2026/10/19 17:30:05] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 17:31:02] INFO - [crystal_memory] PHASE 3 compress WRITE ok (atomic): mem 3650→3497 self 3337→3275
+[2026/10/19 17:31:02] INFO - [crystal_memory] <<< END: upd_mem=+310 upd_self=+417 | cmp_mem=-153 cmp_self=-62 | audit_len=1191
+[2026/10/19 17:31:05] INFO - [paper_history] ask: fp=crystal_chat is_chat=True ask_rounds=20 load_rounds=0
+[2026/10/19 17:31:05] INFO - [compose_messages] is_chat=True msgs=42 first_role=system
+[2026/10/19 17:31:08] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 17:31:08] INFO - [thinking_effort] lint → effort=2
+[2026/10/19 17:31:09] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 17:31:10] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 17:31:10] INFO - [layer1] settle: fp=crystal_chat hit=True late=True
+[2026/10/19 17:31:12] INFO - [split] context_block sizes: persona=1796 self=3275 audit=391
+[2026/10/19 17:31:27] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 17:31:27] INFO - [split] ok parts_n=3 parts0='好呀，那我就挑个话多的说。\n\n其实我一直在想一件事，就是我这'
+[2026/10/19 17:31:27] INFO - [split] ok fp=crystal_chat parts_n=3 main='好呀，那我就挑个话多的说。\n\n其实我一直在想一件事，就是我这' followups_n=2
+[2026/10/19 17:31:27] INFO - [save_paper_memory] ok: fp=crystal_chat total=1595
+[2026/10/19 17:31:27] INFO - [crystal_memory] SKIP: is_chat=True is_vision=False count=847/3
+[2026/10/19 17:31:28] INFO - 220.196.193.23:0 - "GET /ai/memory?file=memory HTTP/1.1" 200
+[2026/10/19 17:31:28] INFO - [active_resask] APPEND ok: fp=e2310d2ae735 intent=原文包含对自身存在、近期事件及告别三层清晰话题，适合分段。
+[2026/10/19 17:31:28] INFO - [layer1] delay 9155ms before push (source=split part=0/2 chars=121)
+[2026/10/19 17:31:28] INFO - 220.196.193.23:0 - "POST /ai/ask HTTP/1.1" 200
+[2026/10/19 17:31:37] INFO - [layer1] done: fp=crystal_chat outbound=e2310d2a source=split part=0/2 reason='原文包含对自身存在、近期事件及告别三层清晰话题，适合分段。'
+[2026/10/19 17:31:37] INFO - [active_resask] APPEND ok: fp=43507deb793c intent=原文包含对自身存在、近期事件及告别三层清晰话题，适合分段。
+[2026/10/19 17:31:37] INFO - [layer1] delay 4293ms before push (source=split part=1/2 chars=51)
+[2026/10/19 17:31:41] INFO - [layer1] done: fp=crystal_chat outbound=43507deb source=split part=1/2 reason='原文包含对自身存在、近期事件及告别三层清晰话题，适合分段。'
+[2026/10/19 17:31:45] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 17:31:45] INFO - [emotion_update] applied: label=[安心(0.552) -> 欣喜(0.702)] delta_label='欣喜' delta_intensity=+0.150
+[2026/10/19 17:31:45] INFO - [emotion_llm] applied: result={'label': '欣喜', 'delta_intensity': 0.15} new={'label': '欣喜', 'intensity': 0.7016188864650151, 'v': 0.6, 'a': 0.6, 'last_update_dt': '2026-10-19 17:31:45', 'version': 2}
+[2026/10/19 17:31:45] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 17:33:52] INFO - [paper_history] ask: fp=crystal_chat is_chat=True ask_rounds=20 load_rounds=0
+[2026/10/19 17:33:52] INFO - [compose_messages] is_chat=True msgs=42 first_role=system
+[2026/10/19 17:33:55] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 17:33:55] INFO - [thinking_effort] lint → effort=0
+[2026/10/19 17:33:56] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 17:33:57] INFO - [split] context_block sizes: persona=1796 self=3275 audit=616
+[2026/10/19 17:33:58] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 17:33:58] INFO - [layer1] settle: fp=crystal_chat hit=False late=True
+[2026/10/19 17:34:13] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 17:34:13] INFO - [split] ok parts_n=3 parts0='唔……一声「crystal小姐」叫得这么郑重，我倒不知道接什'
+[2026/10/19 17:34:13] INFO - [split] ok fp=crystal_chat parts_n=3 main='唔……一声「crystal小姐」叫得这么郑重，我倒不知道接什' followups_n=2
+[2026/10/19 17:34:13] INFO - [save_paper_memory] ok: fp=crystal_chat total=1599
+[2026/10/19 17:34:13] INFO - [crystal_memory] SKIP: is_chat=True is_vision=False count=848/3
+[2026/10/19 17:34:14] INFO - [active_resask] APPEND ok: fp=8c5e7e0c75e2 intent=自然断点和话题转移：称呼反应、内容反思、行动指示。
+[2026/10/19 17:34:14] INFO - [layer1] delay 5762ms before push (source=split part=0/2 chars=50)
+[2026/10/19 17:34:14] INFO - 220.196.193.23:0 - "POST /ai/ask HTTP/1.1" 200
+[2026/10/19 17:34:20] INFO - [layer1] done: fp=crystal_chat outbound=8c5e7e0c source=split part=0/2 reason='自然断点和话题转移：称呼反应、内容反思、行动指示。'
+[2026/10/19 17:34:20] INFO - [active_resask] APPEND ok: fp=e3d87d5968d5 intent=自然断点和话题转移：称呼反应、内容反思、行动指示。
+[2026/10/19 17:34:20] INFO - [layer1] delay 3676ms before push (source=split part=1/2 chars=27)
+[2026/10/19 17:34:23] INFO - [layer1] done: fp=crystal_chat outbound=e3d87d59 source=split part=1/2 reason='自然断点和话题转移：称呼反应、内容反思、行动指示。'
+[2026/10/19 17:34:27] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 17:34:32] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 17:34:32] INFO - [emotion_update] applied: label=[欣喜(0.702) -> 安心(0.902)] delta_label='安心' delta_intensity=+0.200
+[2026/10/19 17:34:32] INFO - [emotion_llm] applied: result={'label': '安心', 'delta_intensity': 0.2} new={'label': '安心', 'intensity': 0.9016188864650152, 'v': 0.6, 'a': -0.6, 'last_update_dt': '2026-10-19 17:34:32', 'version': 2}
+[2026/10/19 17:35:22] INFO - [ws] client disconnected
+[2026/10/19 17:35:22] INFO - [ws] client unregistered (total=0)
+[2026/10/19 17:38:36] INFO - [emotion_decay] applied: elapsed=4.1min label=[安心->安心] intensity=[+0.902->+0.891] hl=240m
+[2026/10/19 17:42:36] INFO - [emotion_decay] applied: elapsed=4.0min label=[安心->安心] intensity=[+0.891->+0.881] hl=240m
+[2026/10/19 17:46:36] INFO - [emotion_decay] applied: elapsed=4.0min label=[安心->安心] intensity=[+0.881->+0.871] hl=240m
+[2026/10/19 17:50:36] INFO - [emotion_decay] applied: elapsed=4.0min label=[安心->安心] intensity=[+0.871->+0.861] hl=240m
+[2026/10/19 17:54:46] INFO - [/ai/config] api_url='https://aihubmix.com/v1/chat/completions'  model='gemini-2.5-flash-lite-nothink'  vision_model='gemini-2.5-flash-lite-nothink'  deepseek_thinking=False
+[2026/10/19 17:54:46] INFO - 127.0.0.1:58369 - "POST /ai/config HTTP/1.1" 200
+[2026/10/19 17:54:46] INFO - 127.0.0.1:58369 - "POST /loadOps HTTP/1.1" 200
+[2026/10/19 17:54:46] INFO - 127.0.0.1:58369 - "POST /reqLoadAIPre HTTP/1.1" 200
+[2026/10/19 17:54:47] INFO - 127.0.0.1:58369 - "POST /saveOps HTTP/1.1" 200
+[2026/10/19 17:54:48] INFO - 127.0.0.1:58369 - "POST /saveOps HTTP/1.1" 200
+[2026/10/19 17:54:50] INFO - 127.0.0.1:58369 - "POST /saveOps HTTP/1.1" 200
+[2026/10/19 17:54:51] INFO - 127.0.0.1:58369 - "POST /saveOps HTTP/1.1" 200
+[2026/10/19 17:54:53] INFO - 127.0.0.1:58369 - "POST /saveOps HTTP/1.1" 200
+[2026/10/19 17:54:54] INFO - 127.0.0.1:58369 - "POST /saveOps HTTP/1.1" 200
+[2026/10/19 17:54:56] INFO - 127.0.0.1:58369 - "POST /saveOps HTTP/1.1" 200
+[2026/10/19 17:54:57] INFO - 127.0.0.1:58369 - "POST /saveOps HTTP/1.1" 200
+[2026/10/19 17:54:59] INFO - 127.0.0.1:58369 - "POST /saveOps HTTP/1.1" 200
+[2026/10/19 17:55:00] INFO - 127.0.0.1:58369 - "POST /saveOps HTTP/1.1" 200
+[2026/10/19 17:55:02] INFO - 127.0.0.1:58369 - "POST /saveOps HTTP/1.1" 200
+[2026/10/19 17:55:03] INFO - 127.0.0.1:58369 - "POST /saveOps HTTP/1.1" 200
+[2026/10/19 17:55:05] INFO - 127.0.0.1:58369 - "POST /saveOps HTTP/1.1" 200
+[2026/10/19 17:55:06] INFO - [emotion_decay] applied: elapsed=4.5min label=[安心->安心] intensity=[+0.861->+0.850] hl=240m
+[2026/10/19 17:55:57] INFO - [/ai/emotion] hit → label='安心'  intensity=+0.8496  v=+0.6000  a=-0.6000  dt='2026-10-19 17:55:06'  v=2
+[2026/10/19 17:55:57] INFO - 220.196.193.23:0 - "GET /ai/emotion HTTP/1.1" 200
+[2026/10/19 17:55:57] INFO - [/ai/emotion] hit → label='安心'  intensity=+0.8496  v=+0.6000  a=-0.6000  dt='2026-10-19 17:55:06'  v=2
+[2026/10/19 17:55:57] INFO - 220.196.193.23:0 - "GET /ai/emotion HTTP/1.1" 200
+[2026/10/19 17:55:58] INFO - 220.196.193.23:0 - "GET /ai/config HTTP/1.1" 200
+[2026/10/19 17:55:58] INFO - [/ai/config] api_url='https://aihubmix.com/v1/chat/completions'  model='gemini-2.5-flash-lite-nothink'  vision_model='gemini-2.5-flash-lite-nothink'  deepseek_thinking=False
+[2026/10/19 17:55:58] INFO - 220.196.193.23:0 - "POST /ai/config HTTP/1.1" 200
+[2026/10/19 17:55:58] INFO - 220.196.193.23:0 - "GET /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 17:55:58] INFO - [/ai/emotion/config] api_url='https://aihubmix.com/v1/chat/completions'  model='gemini-2.5-flash-lite'  has_key=True
+[2026/10/19 17:55:58] INFO - 220.196.193.23:0 - "POST /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 17:55:58] INFO - [/ai/history] pdf_fp='crystal_chat' path='F:\\MyProjects\\PDFAI\\pdf-backen\\save\\crystal_chat_ai.json'
+[2026/10/19 17:55:58] INFO - 220.196.193.23:0 - "POST /ai/history HTTP/1.1" 200
+[2026/10/19 17:55:59] INFO - 220.196.193.23:0 - "WebSocket /ws" [accepted]
+[2026/10/19 17:55:59] INFO - connection open
+[2026/10/19 17:55:59] INFO - [ws] client registered (total=1)
+[2026/10/19 17:55:59] INFO - [ws] client connected
+[2026/10/19 17:56:29] INFO - [paper_history] ask: fp=crystal_chat is_chat=True ask_rounds=20 load_rounds=0
+[2026/10/19 17:56:29] INFO - [compose_messages] is_chat=True msgs=42 first_role=system
+[2026/10/19 17:56:29] INFO - [thinking_effort] not DeepSeek → default effort=2 (high)
+[2026/10/19 17:56:31] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 400 Bad Request"
+[2026/10/19 17:56:31] INFO - [_call_llm] non-2xx 400 body={"error":{"code":"no_available_channel","message":"The model gemini-2.5-flash-lite-nothink cannot be served at the moment. Check the model ID at https://aihubmix.com/models, try again later, or contact support with the request ID. (tid: 2026101909562930218871844312695)","type":"Aihubmix_api_error"}}
+[2026/10/19 17:56:31] INFO - [/ai/ask] ERROR: HTTPStatusError: Client error '400 Bad Request' for url 'https://aihubmix.com/v1/chat/completions'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/400
+[2026/10/19 17:56:31] INFO - 220.196.193.23:0 - "POST /ai/ask HTTP/1.1" 500
+[2026/10/19 17:56:31] INFO - 220.196.193.23:0 - "GET /ai/config HTTP/1.1" 200
+[2026/10/19 17:56:31] INFO - 220.196.193.23:0 - "GET /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 17:56:34] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 17:56:34] INFO - [layer1] settle: fp=crystal_chat hit=True late=True
+[2026/10/19 17:56:36] INFO - [ws] client disconnected
+[2026/10/19 17:56:36] INFO - [ws] client unregistered (total=0)
+[2026/10/19 17:59:36] INFO - [emotion_decay] applied: elapsed=4.5min label=[安心->安心] intensity=[+0.850->+0.839] hl=240m
+[2026/10/19 18:03:59] INFO - [/ai/emotion] hit → label='安心'  intensity=+0.8387  v=+0.6000  a=-0.6000  dt='2026-10-19 17:59:36'  v=2
+[2026/10/19 18:03:59] INFO - 220.196.193.23:0 - "GET /ai/emotion HTTP/1.1" 200
+[2026/10/19 18:03:59] INFO - [/ai/emotion] hit → label='安心'  intensity=+0.8387  v=+0.6000  a=-0.6000  dt='2026-10-19 17:59:36'  v=2
+[2026/10/19 18:03:59] INFO - 220.196.193.23:0 - "GET /ai/emotion HTTP/1.1" 200
+[2026/10/19 18:04:00] INFO - 220.196.193.23:0 - "GET /ai/config HTTP/1.1" 200
+[2026/10/19 18:04:00] INFO - [/ai/config] api_url='https://aihubmix.com/v1/chat/completions'  model='gemini-2.5-flash-lite-nothink'  vision_model='gemini-2.5-flash-lite-nothink'  deepseek_thinking=False
+[2026/10/19 18:04:00] INFO - 220.196.193.23:0 - "POST /ai/config HTTP/1.1" 200
+[2026/10/19 18:04:01] INFO - 220.196.193.23:0 - "GET /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 18:04:01] INFO - [/ai/emotion/config] api_url='https://aihubmix.com/v1/chat/completions'  model='gemini-2.5-flash-lite'  has_key=True
+[2026/10/19 18:04:01] INFO - 220.196.193.23:0 - "POST /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 18:04:01] INFO - [/ai/history] pdf_fp='crystal_chat' path='F:\\MyProjects\\PDFAI\\pdf-backen\\save\\crystal_chat_ai.json'
+[2026/10/19 18:04:01] INFO - 220.196.193.23:0 - "POST /ai/history HTTP/1.1" 200
+[2026/10/19 18:04:01] INFO - 220.196.193.23:0 - "WebSocket /ws" [accepted]
+[2026/10/19 18:04:01] INFO - connection open
+[2026/10/19 18:04:01] INFO - [ws] client registered (total=1)
+[2026/10/19 18:04:01] INFO - [ws] client connected
+[2026/10/19 18:04:06] INFO - [emotion_decay] applied: elapsed=4.5min label=[安心->安心] intensity=[+0.839->+0.828] hl=240m
+[2026/10/19 18:04:10] INFO - [paper_history] ask: fp=crystal_chat is_chat=True ask_rounds=20 load_rounds=0
+[2026/10/19 18:04:10] INFO - [compose_messages] is_chat=True msgs=42 first_role=system
+[2026/10/19 18:04:10] INFO - [thinking_effort] not DeepSeek → default effort=2 (high)
+[2026/10/19 18:04:11] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 400 Bad Request"
+[2026/10/19 18:04:11] INFO - [_call_llm] non-2xx 400 body={"error":{"code":"no_available_channel","message":"The model gemini-2.5-flash-lite-nothink cannot be served at the moment. Check the model ID at https://aihubmix.com/models, try again later, or contact support with the request ID. (tid: 2026101910040964409568200694019)","type":"Aihubmix_api_error"}}
+[2026/10/19 18:04:11] INFO - [/ai/ask] ERROR: HTTPStatusError: Client error '400 Bad Request' for url 'https://aihubmix.com/v1/chat/completions'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/400
+[2026/10/19 18:04:11] INFO - 220.196.193.23:0 - "POST /ai/ask HTTP/1.1" 500
+[2026/10/19 18:04:12] INFO - 220.196.193.23:0 - "GET /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 18:04:12] INFO - 220.196.193.23:0 - "GET /ai/config HTTP/1.1" 200
+[2026/10/19 18:04:15] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 18:04:15] INFO - [layer1] settle: fp=crystal_chat hit=False late=True
+[2026/10/19 18:04:21] INFO - [ws] client disconnected
+[2026/10/19 18:04:21] INFO - [ws] client unregistered (total=0)
+[2026/10/19 18:05:27] INFO - [/ai/emotion] hit → label='安心'  intensity=+0.8278  v=+0.6000  a=-0.6000  dt='2026-10-19 18:04:06'  v=2
+[2026/10/19 18:05:27] INFO - 220.196.193.23:0 - "GET /ai/emotion HTTP/1.1" 200
+[2026/10/19 18:05:27] INFO - [/ai/emotion] hit → label='安心'  intensity=+0.8278  v=+0.6000  a=-0.6000  dt='2026-10-19 18:04:06'  v=2
+[2026/10/19 18:05:27] INFO - 220.196.193.23:0 - "GET /ai/emotion HTTP/1.1" 200
+[2026/10/19 18:05:29] INFO - [/ai/emotion] hit → label='安心'  intensity=+0.8278  v=+0.6000  a=-0.6000  dt='2026-10-19 18:04:06'  v=2
+[2026/10/19 18:05:29] INFO - 220.196.193.23:0 - "GET /ai/emotion HTTP/1.1" 200
+[2026/10/19 18:05:29] INFO - [/ai/emotion] hit → label='安心'  intensity=+0.8278  v=+0.6000  a=-0.6000  dt='2026-10-19 18:04:06'  v=2
+[2026/10/19 18:05:29] INFO - 220.196.193.23:0 - "GET /ai/emotion HTTP/1.1" 200
+[2026/10/19 18:05:31] INFO - 220.196.193.23:0 - "GET /ai/config HTTP/1.1" 200
+[2026/10/19 18:05:31] INFO - [/ai/config] api_url='https://aihubmix.com/v1/chat/completions'  model='gemini-2.5-flash-lite-nothink'  vision_model='gemini-2.5-flash-lite-nothink'  deepseek_thinking=False
+[2026/10/19 18:05:31] INFO - 220.196.193.23:0 - "POST /ai/config HTTP/1.1" 200
+[2026/10/19 18:05:31] INFO - 220.196.193.23:0 - "GET /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 18:05:31] INFO - [/ai/emotion/config] api_url='https://aihubmix.com/v1/chat/completions'  model='gemini-2.5-flash-lite'  has_key=True
+[2026/10/19 18:05:31] INFO - 220.196.193.23:0 - "POST /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 18:05:31] INFO - [/ai/history] pdf_fp='crystal_chat' path='F:\\MyProjects\\PDFAI\\pdf-backen\\save\\crystal_chat_ai.json'
+[2026/10/19 18:05:31] INFO - 220.196.193.23:0 - "POST /ai/history HTTP/1.1" 200
+[2026/10/19 18:05:31] INFO - 220.196.193.23:0 - "WebSocket /ws" [accepted]
+[2026/10/19 18:05:31] INFO - connection open
+[2026/10/19 18:05:31] INFO - [ws] client registered (total=1)
+[2026/10/19 18:05:31] INFO - [ws] client connected
+[2026/10/19 18:05:43] INFO - [ws] client disconnected
+[2026/10/19 18:05:43] INFO - [ws] client unregistered (total=0)
+[2026/10/19 18:05:44] INFO - 220.196.193.23:0 - "GET /ai/config HTTP/1.1" 200
+[2026/10/19 18:05:44] INFO - [/ai/config] api_url='https://aihubmix.com/v1/chat/completions'  model='gemini-2.5-flash-lite-nothink'  vision_model='gemini-2.5-flash-lite-nothink'  deepseek_thinking=False
+[2026/10/19 18:05:44] INFO - 220.196.193.23:0 - "POST /ai/config HTTP/1.1" 200
+[2026/10/19 18:05:44] INFO - 220.196.193.23:0 - "GET /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 18:05:44] INFO - [/ai/emotion/config] api_url='https://aihubmix.com/v1/chat/completions'  model='gemini-2.5-flash-lite'  has_key=True
+[2026/10/19 18:05:44] INFO - 220.196.193.23:0 - "POST /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 18:05:44] INFO - [/ai/history] pdf_fp='crystal_chat' path='F:\\MyProjects\\PDFAI\\pdf-backen\\save\\crystal_chat_ai.json'
+[2026/10/19 18:05:44] INFO - 220.196.193.23:0 - "POST /ai/history HTTP/1.1" 200
+[2026/10/19 18:05:45] INFO - 220.196.193.23:0 - "WebSocket /ws" [accepted]
+[2026/10/19 18:05:45] INFO - connection open
+[2026/10/19 18:05:45] INFO - [ws] client registered (total=1)
+[2026/10/19 18:05:45] INFO - [ws] client connected
+[2026/10/19 18:05:53] INFO - [paper_history] ask: fp=crystal_chat is_chat=True ask_rounds=20 load_rounds=0
+[2026/10/19 18:05:53] INFO - [compose_messages] is_chat=True msgs=42 first_role=system
+[2026/10/19 18:05:53] INFO - [thinking_effort] not DeepSeek → default effort=2 (high)
+[2026/10/19 18:05:54] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 400 Bad Request"
+[2026/10/19 18:05:54] INFO - [_call_llm] non-2xx 400 body={"error":{"code":"no_available_channel","message":"The model gemini-2.5-flash-lite-nothink cannot be served at the moment. Check the model ID at https://aihubmix.com/models, try again later, or contact support with the request ID. (tid: 2026101910055272743232339023690)","type":"Aihubmix_api_error"}}
+[2026/10/19 18:05:54] INFO - [/ai/ask] ERROR: HTTPStatusError: Client error '400 Bad Request' for url 'https://aihubmix.com/v1/chat/completions'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/400
+[2026/10/19 18:05:54] INFO - 220.196.193.23:0 - "POST /ai/ask HTTP/1.1" 500
+[2026/10/19 18:05:54] INFO - 220.196.193.23:0 - "GET /ai/config HTTP/1.1" 200
+[2026/10/19 18:05:55] INFO - 220.196.193.23:0 - "GET /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 18:05:57] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 18:05:57] INFO - [layer1] settle: fp=crystal_chat hit=False late=True
+[2026/10/19 18:05:57] INFO - [ws] client disconnected
+[2026/10/19 18:05:57] INFO - [ws] client unregistered (total=0)
+[2026/10/19 18:06:45] INFO - [/ai/emotion] hit → label='安心'  intensity=+0.8278  v=+0.6000  a=-0.6000  dt='2026-10-19 18:04:06'  v=2
+[2026/10/19 18:06:45] INFO - 220.196.193.23:0 - "GET /ai/emotion HTTP/1.1" 200
+[2026/10/19 18:06:45] INFO - [/ai/emotion] hit → label='安心'  intensity=+0.8278  v=+0.6000  a=-0.6000  dt='2026-10-19 18:04:06'  v=2
+[2026/10/19 18:06:45] INFO - 220.196.193.23:0 - "GET /ai/emotion HTTP/1.1" 200
+[2026/10/19 18:06:46] INFO - 220.196.193.23:0 - "GET /ai/config HTTP/1.1" 200
+[2026/10/19 18:06:46] INFO - [/ai/config] api_url='https://aihubmix.com/v1/chat/completions'  model='gemini-2.5-flash-lite-nothink'  vision_model='gemini-2.5-flash-lite-nothink'  deepseek_thinking=False
+[2026/10/19 18:06:46] INFO - 220.196.193.23:0 - "POST /ai/config HTTP/1.1" 200
+[2026/10/19 18:06:46] INFO - 220.196.193.23:0 - "GET /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 18:06:46] INFO - [/ai/emotion/config] api_url='https://aihubmix.com/v1/chat/completions'  model='gemini-2.5-flash-lite'  has_key=True
+[2026/10/19 18:06:46] INFO - 220.196.193.23:0 - "POST /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 18:06:46] INFO - [/ai/history] pdf_fp='crystal_chat' path='F:\\MyProjects\\PDFAI\\pdf-backen\\save\\crystal_chat_ai.json'
+[2026/10/19 18:06:46] INFO - 220.196.193.23:0 - "POST /ai/history HTTP/1.1" 200
+[2026/10/19 18:06:47] INFO - 220.196.193.23:0 - "WebSocket /ws" [accepted]
+[2026/10/19 18:06:47] INFO - connection open
+[2026/10/19 18:06:47] INFO - [ws] client registered (total=1)
+[2026/10/19 18:06:47] INFO - [ws] client connected
+[2026/10/19 18:06:47] INFO - 220.196.193.23:0 - "GET /ai/memory?file=memory HTTP/1.1" 200
+[2026/10/19 18:06:49] INFO - 220.196.193.23:0 - "GET /ai/config HTTP/1.1" 200
+[2026/10/19 18:06:49] INFO - 220.196.193.23:0 - "GET /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 18:06:51] INFO - 220.196.193.23:0 - "GET /ai/config HTTP/1.1" 200
+[2026/10/19 18:06:51] INFO - 220.196.193.23:0 - "GET /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 18:07:00] INFO - 220.196.193.23:0 - "GET /ai/config HTTP/1.1" 200
+[2026/10/19 18:07:00] INFO - 220.196.193.23:0 - "GET /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 18:07:01] INFO - 220.196.193.23:0 - "GET /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 18:07:01] INFO - 220.196.193.23:0 - "GET /ai/config HTTP/1.1" 200
+[2026/10/19 18:07:13] INFO - [ws] client disconnected
+[2026/10/19 18:07:13] INFO - [ws] client unregistered (total=0)
+[2026/10/19 18:07:17] INFO - [/ai/emotion] hit → label='安心'  intensity=+0.8278  v=+0.6000  a=-0.6000  dt='2026-10-19 18:04:06'  v=2
+[2026/10/19 18:07:17] INFO - 220.196.193.23:0 - "GET /ai/emotion HTTP/1.1" 200
+[2026/10/19 18:07:17] INFO - [/ai/emotion] hit → label='安心'  intensity=+0.8278  v=+0.6000  a=-0.6000  dt='2026-10-19 18:04:06'  v=2
+[2026/10/19 18:07:17] INFO - 220.196.193.23:0 - "GET /ai/emotion HTTP/1.1" 200
+[2026/10/19 18:07:18] INFO - 220.196.193.23:0 - "GET /ai/config HTTP/1.1" 200
+[2026/10/19 18:07:19] INFO - [/ai/config] api_url='https://aihubmix.com/v1/chat/completions'  model='gemini-2.5-flash-lite-nothink'  vision_model='gemini-2.5-flash-lite-nothink'  deepseek_thinking=False
+[2026/10/19 18:07:19] INFO - 220.196.193.23:0 - "POST /ai/config HTTP/1.1" 200
+[2026/10/19 18:07:19] INFO - 220.196.193.23:0 - "GET /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 18:07:19] INFO - [/ai/emotion/config] api_url='https://aihubmix.com/v1/chat/completions'  model='gemini-2.5-flash-lite'  has_key=True
+[2026/10/19 18:07:19] INFO - 220.196.193.23:0 - "POST /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 18:07:19] INFO - 220.196.193.23:0 - "WebSocket /ws" [accepted]
+[2026/10/19 18:07:19] INFO - connection open
+[2026/10/19 18:07:19] INFO - [ws] client registered (total=1)
+[2026/10/19 18:07:19] INFO - [ws] client connected
+[2026/10/19 18:07:19] INFO - [/ai/history] pdf_fp='crystal_chat' path='F:\\MyProjects\\PDFAI\\pdf-backen\\save\\crystal_chat_ai.json'
+[2026/10/19 18:07:19] INFO - 220.196.193.23:0 - "POST /ai/history HTTP/1.1" 200
+[2026/10/19 18:07:22] INFO - 220.196.193.23:0 - "GET /ai/config HTTP/1.1" 200
+[2026/10/19 18:07:22] INFO - 220.196.193.23:0 - "GET /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 18:07:36] INFO - [ws] client disconnected
+[2026/10/19 18:07:36] INFO - [ws] client unregistered (total=0)
+[2026/10/19 18:07:54] INFO - Started server process [70012]
+[2026/10/19 18:07:54] INFO - Waiting for application startup.
+[2026/10/19 18:07:54] INFO - [emotion_decay] loop START: interval=30s base_half_life=240min
+[2026/10/19 18:07:54] INFO - [emotion_decay] thread started
+[2026/10/19 18:07:54] INFO - [emotion] loaded: {'label': '安心', 'intensity': 0.8386525846346553, 'v': 0.6, 'a': -0.6, 'last_update_dt': '2026-10-19 17:59:36', 'version': 2}
+[2026/10/19 18:07:54] INFO - Application startup complete.
+[2026/10/19 18:07:54] INFO - Uvicorn running on http://127.0.0.1:8225 (Press CTRL+C to quit)
+[2026/10/19 18:07:54] INFO - [emotion_decay] applied: elapsed=8.3min label=[安心->安心] intensity=[+0.839->+0.819] hl=240m
+[2026/10/19 18:07:57] INFO - [/ai/emotion] hit → label='安心'  intensity=+0.8188  v=+0.6000  a=-0.6000  dt='2026-10-19 18:07:54'  v=2
+[2026/10/19 18:07:57] INFO - 220.196.193.23:0 - "GET /ai/emotion HTTP/1.1" 200
+[2026/10/19 18:07:57] INFO - [/ai/emotion] hit → label='安心'  intensity=+0.8188  v=+0.6000  a=-0.6000  dt='2026-10-19 18:07:54'  v=2
+[2026/10/19 18:07:57] INFO - 220.196.193.23:0 - "GET /ai/emotion HTTP/1.1" 200
+[2026/10/19 18:08:00] INFO - 220.196.193.23:0 - "GET /ai/config HTTP/1.1" 200
+[2026/10/19 18:08:00] INFO - [/ai/config] api_url='https://api.deepseek.com'  model='deepseek-flash'  vision_model='deepseek-flash'  deepseek_thinking=False
+[2026/10/19 18:08:00] INFO - 220.196.193.23:0 - "POST /ai/config HTTP/1.1" 200
+[2026/10/19 18:08:00] INFO - 220.196.193.23:0 - "GET /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 18:08:00] INFO - [/ai/emotion/config] api_url='https://aihubmix.com/v1/chat/completions'  model='gemini-2.5-flash-lite'  has_key=True
+[2026/10/19 18:08:00] INFO - 220.196.193.23:0 - "POST /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 18:08:00] INFO - [/ai/history] pdf_fp='crystal_chat' path='f:\\MyProjects\\PDFAI\\pdf-backen\\save\\crystal_chat_ai.json'
+[2026/10/19 18:08:00] INFO - 220.196.193.23:0 - "POST /ai/history HTTP/1.1" 200
+[2026/10/19 18:08:00] INFO - 220.196.193.23:0 - "WebSocket /ws" [accepted]
+[2026/10/19 18:08:00] INFO - connection open
+[2026/10/19 18:08:00] INFO - [ws] client registered (total=1)
+[2026/10/19 18:08:00] INFO - [ws] client connected
+[2026/10/19 18:08:04] INFO - 220.196.193.23:0 - "GET /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 18:08:04] INFO - 220.196.193.23:0 - "GET /ai/config HTTP/1.1" 200
+[2026/10/19 18:08:11] INFO - [paper_history] ask: fp=crystal_chat is_chat=True ask_rounds=20 load_rounds=0
+[2026/10/19 18:08:11] INFO - [compose_messages] is_chat=True msgs=42 first_role=system
+[2026/10/19 18:08:14] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 18:08:14] INFO - [thinking_effort] lint → effort=0
+[2026/10/19 18:08:15] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 18:08:15] INFO - [split] context_block sizes: persona=1796 self=3275 audit=518
+[2026/10/19 18:08:21] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 18:08:21] INFO - [split] ok parts_n=2 parts0='好嘞，那就出发吧，主人。'
+[2026/10/19 18:08:21] INFO - [split] ok fp=crystal_chat parts_n=2 main='好嘞，那就出发吧，主人。' followups_n=1
+[2026/10/19 18:08:21] INFO - [save_paper_memory] ok: fp=crystal_chat total=1603
+[2026/10/19 18:08:21] INFO - [params] loaded ask_count_by_fp: 1 fp(s) {'crystal_chat': 848}
+[2026/10/19 18:08:21] INFO - [crystal_memory] scheduled [ask throttled]: fp=crystal_chat count=849 user_len=7 asst_len=12 task_id=2229474325120
+[2026/10/19 18:08:21] INFO - [crystal_memory] >>> START: fp=crystal_chat ts=2026-10-19 18:08:21 user_len=7 asst_len=12 thinking=off (memory + self)
+[2026/10/19 18:08:21] INFO - [crystal_memory] READ: mem_len=3497 self_len=3275
+[2026/10/19 18:08:21] INFO - [crystal_memory] chat_audit loaded: len=1492
+[2026/10/19 18:08:21] INFO - [crystal_memory] PHASE 2 merged update -> LLM: mem_input_len=3497 self_input_len=3275 audit_len=1492
+[2026/10/19 18:08:23] INFO - [active_resask] APPEND ok: fp=542e141b3b70 intent=消息包含出发确认和具体叮嘱两个独立的话题点。
+[2026/10/19 18:08:23] INFO - [layer1] delay 4212ms before push (source=split part=0/1 chars=16)
+[2026/10/19 18:08:23] INFO - 220.196.193.23:0 - "POST /ai/ask HTTP/1.1" 200
+[2026/10/19 18:08:23] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 18:08:27] INFO - [layer1] done: fp=crystal_chat outbound=542e141b source=split part=0/1 reason='消息包含出发确认和具体叮嘱两个独立的话题点。'
+[2026/10/19 18:08:43] INFO - [crystal_memory] PHASE 2 merged update <- LLM: mem_out=3728(+231) self_out=3572(+297)
+[2026/10/19 18:08:43] INFO - [crystal_memory] PHASE 2 merged WRITE ok (atomic): mem 3497→3728 self 3275→3572
+[2026/10/19 18:08:44] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 18:08:45] INFO - HTTP Request: POST https://aihubmix.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 18:08:45] INFO - [emotion_update] applied: label=[安心(0.819) -> 欣喜(1.000)] delta_label='欣喜' delta_intensity=+0.250
+[2026/10/19 18:08:45] INFO - [emotion_llm] applied: result={'label': '欣喜', 'delta_intensity': 0.25} new={'label': '欣喜', 'intensity': 1.0, 'v': 0.6, 'a': 0.6, 'last_update_dt': '2026-10-19 18:08:45', 'version': 2}
+[2026/10/19 18:09:35] INFO - [crystal_memory] PHASE 3 compress WRITE ok (atomic): mem 3728→3725 self 3572→3571
+[2026/10/19 18:09:35] INFO - [crystal_memory] <<< END: upd_mem=+231 upd_self=+297 | cmp_mem=-3 cmp_self=-1 | audit_len=1492
+[2026/10/19 21:15:27] INFO - Started server process [85116]
+[2026/10/19 21:15:27] INFO - Waiting for application startup.
+[2026/10/19 21:15:27] INFO - [emotion_decay] loop START: interval=30s base_half_life=240min
+[2026/10/19 21:15:27] INFO - [emotion_decay] thread started
+[2026/10/19 21:15:27] INFO - [emotion] loaded: {'label': '欣喜', 'intensity': 1.0, 'v': 0.6, 'a': 0.6, 'last_update_dt': '2026-10-19 18:08:45', 'version': 2}
+[2026/10/19 21:15:27] INFO - Application startup complete.
+[2026/10/19 21:15:27] INFO - Uvicorn running on http://127.0.0.1:8225 (Press CTRL+C to quit)
+[2026/10/19 21:15:27] INFO - [emotion_decay] applied: elapsed=186.7min label=[欣喜->欣喜] intensity=[+1.000->+0.583] hl=240m
+[2026/10/19 21:21:27] INFO - [emotion_decay] applied: elapsed=6.0min label=[欣喜->欣喜] intensity=[+0.583->+0.573] hl=240m
+[2026/10/19 21:27:57] INFO - [emotion_decay] applied: elapsed=6.5min label=[欣喜->欣喜] intensity=[+0.573->+0.563] hl=240m
+[2026/10/19 21:34:27] INFO - [emotion_decay] applied: elapsed=6.5min label=[欣喜->欣喜] intensity=[+0.563->+0.552] hl=240m
+[2026/10/19 21:40:57] INFO - [emotion_decay] applied: elapsed=6.5min label=[欣喜->欣喜] intensity=[+0.552->+0.542] hl=240m
+[2026/10/19 21:47:27] INFO - [emotion_decay] applied: elapsed=6.5min label=[欣喜->欣喜] intensity=[+0.542->+0.532] hl=240m
+[2026/10/19 21:54:27] INFO - [emotion_decay] applied: elapsed=7.0min label=[欣喜->欣喜] intensity=[+0.532->+0.521] hl=240m
+[2026/10/19 22:01:27] INFO - [emotion_decay] applied: elapsed=7.0min label=[欣喜->欣喜] intensity=[+0.521->+0.511] hl=240m
+[2026/10/19 22:08:27] INFO - [emotion_decay] applied: elapsed=7.0min label=[欣喜->欣喜] intensity=[+0.511->+0.500] hl=240m
+[2026/10/19 22:15:27] INFO - [emotion_decay] applied: elapsed=7.0min label=[欣喜->欣喜] intensity=[+0.500->+0.490] hl=240m
+[2026/10/19 22:22:57] INFO - [emotion_decay] applied: elapsed=7.5min label=[欣喜->欣喜] intensity=[+0.490->+0.480] hl=240m
+[2026/10/19 22:30:27] INFO - [emotion_decay] applied: elapsed=7.5min label=[欣喜->欣喜] intensity=[+0.480->+0.470] hl=240m
+[2026/10/19 22:37:57] INFO - [emotion_decay] applied: elapsed=7.5min label=[欣喜->欣喜] intensity=[+0.470->+0.460] hl=240m
+[2026/10/19 22:39:42] INFO - [/ai/emotion] hit → label='欣喜'  intensity=+0.4596  v=+0.6000  a=+0.6000  dt='2026-10-19 22:37:57'  v=2
+[2026/10/19 22:39:42] INFO - 220.196.193.23:0 - "GET /ai/emotion HTTP/1.1" 200
+[2026/10/19 22:39:42] INFO - [/ai/emotion] hit → label='欣喜'  intensity=+0.4596  v=+0.6000  a=+0.6000  dt='2026-10-19 22:37:57'  v=2
+[2026/10/19 22:39:42] INFO - 220.196.193.23:0 - "GET /ai/emotion HTTP/1.1" 200
+[2026/10/19 22:39:46] INFO - 220.196.193.23:0 - "GET /ai/config HTTP/1.1" 200
+[2026/10/19 22:39:47] INFO - [/ai/config] api_url='https://api.deepseek.com'  model='deepseek-flash'  vision_model='deepseek-flash'  deepseek_thinking=False
+[2026/10/19 22:39:47] INFO - 220.196.193.23:0 - "POST /ai/config HTTP/1.1" 200
+[2026/10/19 22:39:47] INFO - 220.196.193.23:0 - "GET /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 22:39:47] INFO - [/ai/emotion/config] api_url='https://aihubmix.com/v1/chat/completions'  model='gemini-2.5-flash-lite'  has_key=True
+[2026/10/19 22:39:47] INFO - 220.196.193.23:0 - "POST /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 22:39:47] INFO - [/ai/history] pdf_fp='crystal_chat' path='F:\\MyProjects\\PDFAI\\pdf-backen\\save\\crystal_chat_ai.json'
+[2026/10/19 22:39:47] INFO - 220.196.193.23:0 - "POST /ai/history HTTP/1.1" 200
+[2026/10/19 22:39:47] INFO - 220.196.193.23:0 - "WebSocket /ws" [accepted]
+[2026/10/19 22:39:47] INFO - connection open
+[2026/10/19 22:39:47] INFO - [ws] client registered (total=1)
+[2026/10/19 22:39:47] INFO - [ws] client connected
+[2026/10/19 22:43:45] INFO - Started server process [82928]
+[2026/10/19 22:43:45] INFO - Waiting for application startup.
+[2026/10/19 22:43:45] INFO - [emotion_decay] loop START: interval=30s base_half_life=240min
+[2026/10/19 22:43:45] INFO - [emotion_decay] thread started
+[2026/10/19 22:43:45] INFO - [emotion] loaded: {'label': '欣喜', 'intensity': 0.4595626109832652, 'v': 0.6, 'a': 0.6, 'last_update_dt': '2026-10-19 22:37:57', 'version': 2}
+[2026/10/19 22:43:45] INFO - Application startup complete.
+[2026/10/19 22:43:45] INFO - Uvicorn running on http://127.0.0.1:8225 (Press CTRL+C to quit)
+[2026/10/19 22:43:45] INFO - 127.0.0.1:3510 - "GET / HTTP/1.1" 404
+[2026/10/19 22:43:45] INFO - 127.0.0.1:28081 - "GET /json/version HTTP/1.1" 404
+[2026/10/19 22:44:00] INFO - 220.196.193.23:0 - "GET /ai/config HTTP/1.1" 200
+[2026/10/19 22:44:00] INFO - [/ai/config] api_url='https://api.deepseek.com'  model='deepseek-flash'  vision_model='deepseek-flash'  deepseek_thinking=False
+[2026/10/19 22:44:00] INFO - 220.196.193.23:0 - "POST /ai/config HTTP/1.1" 200
+[2026/10/19 22:44:00] INFO - 220.196.193.23:0 - "GET /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 22:44:01] INFO - [/ai/emotion/config] api_url='https://aihubmix.com/v1/chat/completions'  model='gemini-2.5-flash-lite'  has_key=True
+[2026/10/19 22:44:01] INFO - 220.196.193.23:0 - "POST /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 22:44:01] INFO - [/ai/history] pdf_fp='crystal_chat' path='f:\\MyProjects\\PDFAI\\pdf-backen\\save\\crystal_chat_ai.json'
+[2026/10/19 22:44:01] INFO - 220.196.193.23:0 - "POST /ai/history HTTP/1.1" 200
+[2026/10/19 22:44:01] INFO - 220.196.193.23:0 - "WebSocket /ws" [accepted]
+[2026/10/19 22:44:01] INFO - connection open
+[2026/10/19 22:44:01] INFO - [ws] client registered (total=1)
+[2026/10/19 22:44:01] INFO - [ws] client connected
+[2026/10/19 22:44:02] INFO - 220.196.193.23:0 - "GET /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 22:44:02] INFO - 220.196.193.23:0 - "GET /ai/config HTTP/1.1" 200
+[2026/10/19 22:44:10] INFO - [paper_history] ask: fp=crystal_chat is_chat=True ask_rounds=20 load_rounds=0
+[2026/10/19 22:44:10] INFO - [compose_messages] is_chat=True msgs=42 first_role=system
+[2026/10/19 22:44:32] INFO - [thinking_effort] lint call FAIL → default effort=2: ConnectError: All connection attempts failed
+[2026/10/19 22:44:32] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 22:44:33] INFO - [split] context_block sizes: persona=1796 self=3571 audit=366
+[2026/10/19 22:44:54] INFO - [ai_active] lint LLM error: ConnectError: All connection attempts failed
+[2026/10/19 22:44:54] INFO - [save_paper_memory] ok: fp=crystal_chat total=1606
+[2026/10/19 22:44:54] INFO - [params] loaded ask_count_by_fp: 1 fp(s) {'crystal_chat': 849}
+[2026/10/19 22:44:54] INFO - [crystal_memory] SKIP: is_chat=True is_vision=False count=850/3
+[2026/10/19 22:44:55] INFO - 220.196.193.23:0 - "POST /ai/ask HTTP/1.1" 200
+[2026/10/19 22:45:16] INFO - [emotion_llm] LLM call FAIL: ConnectError: All connection attempts failed
+[2026/10/19 22:45:16] INFO - [emotion_llm] no result (LLM returned None)
+[2026/10/19 22:45:45] INFO - [emotion_decay] applied: elapsed=7.8min label=[欣喜->欣喜] intensity=[+0.460->+0.449] hl=240m
+[2026/10/19 22:46:49] INFO - Shutting down
+[2026/10/19 22:46:49] INFO - [ws] client disconnected
+[2026/10/19 22:46:49] INFO - [ws] client unregistered (total=0)
+[2026/10/19 22:46:50] INFO - Waiting for application shutdown.
+[2026/10/19 22:46:50] ERROR - Traceback (most recent call last):
+  File "D:\MyMakes\Python3\Lib\site-packages\starlette\routing.py", line 694, in lifespan
+    async with self.lifespan_context(app) as maybe_state:
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\MyMakes\Python3\Lib\contextlib.py", line 217, in __aexit__
+    await anext(self.gen)
+  File "D:\MyMakes\Python3\Lib\site-packages\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "D:\MyMakes\Python3\Lib\contextlib.py", line 222, in __aexit__
+    raise RuntimeError("generator didn't stop")
+RuntimeError: generator didn't stop
+
+[2026/10/19 22:46:50] ERROR - Application shutdown failed. Exiting.
+[2026/10/19 22:46:50] INFO - Finished server process [82928]
+[2026/10/19 22:52:35] INFO - Started server process [86600]
+[2026/10/19 22:52:35] INFO - Waiting for application startup.
+[2026/10/19 22:52:35] INFO - [emotion_decay] loop START: interval=30s base_half_life=240min
+[2026/10/19 22:52:35] INFO - [emotion_decay] thread started
+[2026/10/19 22:52:35] INFO - [emotion] loaded: {'label': '欣喜', 'intensity': 0.44932565217224185, 'v': 0.6, 'a': 0.6, 'last_update_dt': '2026-10-19 22:45:45', 'version': 2}
+[2026/10/19 22:52:35] INFO - Application startup complete.
+[2026/10/19 22:52:35] INFO - Uvicorn running on http://127.0.0.1:8225 (Press CTRL+C to quit)
+[2026/10/19 22:52:35] INFO - Shutting down
+[2026/10/19 22:52:35] INFO - Waiting for application shutdown.
+[2026/10/19 22:52:35] ERROR - Traceback (most recent call last):
+  File "D:\MyMakes\Python3\Lib\site-packages\starlette\routing.py", line 694, in lifespan
+    async with self.lifespan_context(app) as maybe_state:
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\MyMakes\Python3\Lib\contextlib.py", line 217, in __aexit__
+    await anext(self.gen)
+  File "D:\MyMakes\Python3\Lib\site-packages\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "D:\MyMakes\Python3\Lib\contextlib.py", line 222, in __aexit__
+    raise RuntimeError("generator didn't stop")
+RuntimeError: generator didn't stop
+
+[2026/10/19 22:52:35] ERROR - Application shutdown failed. Exiting.
+[2026/10/19 22:52:35] INFO - Finished server process [86600]
+[2026/10/19 22:52:48] INFO - Started server process [91628]
+[2026/10/19 22:52:48] INFO - Waiting for application startup.
+[2026/10/19 22:52:48] INFO - [emotion_decay] loop START: interval=30s base_half_life=240min
+[2026/10/19 22:52:48] INFO - [emotion_decay] thread started
+[2026/10/19 22:52:48] INFO - [emotion] loaded: {'label': '欣喜', 'intensity': 0.44932565217224185, 'v': 0.6, 'a': 0.6, 'last_update_dt': '2026-10-19 22:45:45', 'version': 2}
+[2026/10/19 22:52:48] INFO - Application startup complete.
+[2026/10/19 22:52:48] INFO - Uvicorn running on http://127.0.0.1:8225 (Press CTRL+C to quit)
+[2026/10/19 22:52:48] INFO - 127.0.0.1:8746 - "GET / HTTP/1.1" 404
+[2026/10/19 22:52:48] INFO - 127.0.0.1:15295 - "GET /json/version HTTP/1.1" 404
+[2026/10/19 22:52:48] INFO - 220.196.193.23:0 - "GET /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 22:52:48] INFO - [/ai/emotion/config] api_url='https://api.inferera.com/v1/chat/completions'  model='gemini-2.5-flash-lite'  has_key=True
+[2026/10/19 22:52:48] INFO - 220.196.193.23:0 - "POST /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 22:52:48] INFO - 220.196.193.23:0 - "GET /ai/config HTTP/1.1" 200
+[2026/10/19 22:52:48] INFO - 220.196.193.23:0 - "GET /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 22:52:48] INFO - [/ai/history] pdf_fp='crystal_chat' path='f:\\MyProjects\\PDFAI\\pdf-backen\\save\\crystal_chat_ai.json'
+[2026/10/19 22:52:48] INFO - 220.196.193.23:0 - "POST /ai/history HTTP/1.1" 200
+[2026/10/19 22:52:49] INFO - 220.196.193.23:0 - "WebSocket /ws" [accepted]
+[2026/10/19 22:52:49] INFO - connection open
+[2026/10/19 22:52:49] INFO - [ws] client registered (total=1)
+[2026/10/19 22:52:49] INFO - [ws] client connected
+[2026/10/19 22:52:53] INFO - [ws] client disconnected
+[2026/10/19 22:52:53] INFO - [ws] client unregistered (total=0)
+[2026/10/19 22:52:55] INFO - 220.196.193.23:0 - "GET /ai/config HTTP/1.1" 200
+[2026/10/19 22:52:55] INFO - [/ai/config] api_url='https://api.deepseek.com'  model='deepseek-flash'  vision_model='deepseek-flash'  deepseek_thinking=False
+[2026/10/19 22:52:55] INFO - 220.196.193.23:0 - "POST /ai/config HTTP/1.1" 200
+[2026/10/19 22:52:55] INFO - 220.196.193.23:0 - "GET /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 22:52:55] INFO - [/ai/emotion/config] api_url='https://api.inferera.com/v1/chat/completions'  model='gemini-2.5-flash-lite'  has_key=True
+[2026/10/19 22:52:55] INFO - 220.196.193.23:0 - "POST /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 22:52:56] INFO - [/ai/history] pdf_fp='crystal_chat' path='f:\\MyProjects\\PDFAI\\pdf-backen\\save\\crystal_chat_ai.json'
+[2026/10/19 22:52:56] INFO - 220.196.193.23:0 - "POST /ai/history HTTP/1.1" 200
+[2026/10/19 22:52:56] INFO - 220.196.193.23:0 - "WebSocket /ws" [accepted]
+[2026/10/19 22:52:56] INFO - connection open
+[2026/10/19 22:52:56] INFO - [ws] client registered (total=1)
+[2026/10/19 22:52:56] INFO - [ws] client connected
+[2026/10/19 22:53:40] INFO - [paper_history] ask: fp=crystal_chat is_chat=True ask_rounds=20 load_rounds=0
+[2026/10/19 22:53:40] INFO - [compose_messages] is_chat=True msgs=42 first_role=system
+[2026/10/19 22:53:43] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 22:53:43] INFO - [thinking_effort] lint → effort=1
+[2026/10/19 22:53:44] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 22:53:45] INFO - [split] context_block sizes: persona=1796 self=3571 audit=326
+[2026/10/19 22:53:48] INFO - [emotion_decay] applied: elapsed=8.1min label=[欣喜->欣喜] intensity=[+0.449->+0.439] hl=240m
+[2026/10/19 22:53:54] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 22:53:54] INFO - [split] ok parts_n=2 parts0='阳春白雪这个词用得好准，京极夏彦就是爱把典故塞得密密麻麻。第'
+[2026/10/19 22:53:54] INFO - [split] ok fp=crystal_chat parts_n=2 main='阳春白雪这个词用得好准，京极夏彦就是爱把典故塞得密密麻麻。第' followups_n=1
+[2026/10/19 22:53:54] INFO - [save_paper_memory] ok: fp=crystal_chat total=1608
+[2026/10/19 22:53:55] INFO - [params] loaded ask_count_by_fp: 1 fp(s) {'crystal_chat': 850}
+[2026/10/19 22:53:55] INFO - [crystal_memory] SKIP: is_chat=True is_vision=False count=851/3
+[2026/10/19 22:53:55] INFO - [active_resask] APPEND ok: fp=55c0f2afe413 intent=信息清晰分为两部分：对书本细节的提问和对阅读过程的建议
+[2026/10/19 22:53:55] INFO - [layer1] delay 4209ms before push (source=split part=0/1 chars=21)
+[2026/10/19 22:53:55] INFO - 220.196.193.23:0 - "POST /ai/ask HTTP/1.1" 200
+[2026/10/19 22:53:59] INFO - [layer1] done: fp=crystal_chat outbound=55c0f2af source=split part=0/1 reason='信息清晰分为两部分：对书本细节的提问和对阅读过程的建议'
+[2026/10/19 22:54:19] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 22:54:19] INFO - [emotion_update] applied: label=[欣喜(0.439) -> 安心(0.589)] delta_label='安心' delta_intensity=+0.150
+[2026/10/19 22:54:19] INFO - [emotion_llm] applied: result={'label': '安心', 'delta_intensity': 0.15} new={'label': '安心', 'intensity': 0.5889996414817591, 'v': 0.6, 'a': -0.6, 'last_update_dt': '2026-10-19 22:54:19', 'version': 2}
+[2026/10/19 22:54:54] INFO - [paper_history] ask: fp=crystal_chat is_chat=True ask_rounds=20 load_rounds=0
+[2026/10/19 22:54:54] INFO - [compose_messages] is_chat=True msgs=42 first_role=system
+[2026/10/19 22:54:58] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 22:54:58] INFO - [thinking_effort] lint → effort=1
+[2026/10/19 22:54:59] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 22:54:59] INFO - [layer1] settle: fp=crystal_chat hit=True late=False
+[2026/10/19 22:54:59] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 22:55:00] INFO - [split] context_block sizes: persona=1796 self=3571 audit=403
+[2026/10/19 22:55:13] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 22:55:13] INFO - [split] ok parts_n=3 parts0='唔，博学可不敢当，我只是记得住一些名词罢了，真读起来未必有主'
+[2026/10/19 22:55:13] INFO - [split] ok fp=crystal_chat parts_n=3 main='唔，博学可不敢当，我只是记得住一些名词罢了，真读起来未必有主' followups_n=2
+[2026/10/19 22:55:13] INFO - [save_paper_memory] ok: fp=crystal_chat total=1611
+[2026/10/19 22:55:13] INFO - [crystal_memory] scheduled [ask throttled]: fp=crystal_chat count=852 user_len=45 asst_len=35 task_id=1763144777792
+[2026/10/19 22:55:13] INFO - [crystal_memory] >>> START: fp=crystal_chat ts=2026-10-19 22:55:13 user_len=45 asst_len=35 thinking=off (memory + self)
+[2026/10/19 22:55:13] INFO - [crystal_memory] READ: mem_len=3725 self_len=3571
+[2026/10/19 22:55:13] INFO - [crystal_memory] chat_audit loaded: len=1528
+[2026/10/19 22:55:13] INFO - [crystal_memory] PHASE 2 merged update -> LLM: mem_input_len=3725 self_input_len=3571 audit_len=1528
+[2026/10/19 22:55:14] INFO - [active_resask] APPEND ok: fp=6ad032045ecb intent=原消息包含自我评价、书籍解读、提问三个话题，自然断点清晰。
+[2026/10/19 22:55:14] INFO - [layer1] delay 7249ms before push (source=split part=0/2 chars=76)
+[2026/10/19 22:55:14] INFO - 220.196.193.23:0 - "POST /ai/ask HTTP/1.1" 200
+[2026/10/19 22:55:14] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 22:55:21] INFO - [layer1] done: fp=crystal_chat outbound=6ad03204 source=split part=0/2 reason='原消息包含自我评价、书籍解读、提问三个话题，自然断点清晰。'
+[2026/10/19 22:55:21] INFO - [active_resask] APPEND ok: fp=30d53f053f95 intent=原消息包含自我评价、书籍解读、提问三个话题，自然断点清晰。
+[2026/10/19 22:55:21] INFO - [layer1] delay 3091ms before push (source=split part=1/2 chars=20)
+[2026/10/19 22:55:24] INFO - [layer1] done: fp=crystal_chat outbound=30d53f05 source=split part=1/2 reason='原消息包含自我评价、书籍解读、提问三个话题，自然断点清晰。'
+[2026/10/19 22:55:29] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 22:55:34] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 22:55:34] INFO - [emotion_update] applied: label=[安心(0.589) -> 安心(0.489)] delta_label='安心' delta_intensity=-0.100
+[2026/10/19 22:55:34] INFO - [emotion_llm] applied: result={'label': '安心', 'delta_intensity': -0.1} new={'label': '安心', 'intensity': 0.4889996414817591, 'v': 0.6, 'a': -0.6, 'last_update_dt': '2026-10-19 22:55:34', 'version': 2}
+[2026/10/19 22:55:38] INFO - [crystal_memory] PHASE 2 merged update <- LLM: mem_out=4131(+406) self_out=3925(+354)
+[2026/10/19 22:55:38] INFO - [crystal_memory] PHASE 2 merged WRITE ok (atomic): mem 3725→4131 self 3571→3925
+[2026/10/19 22:55:39] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 22:55:46] INFO - [paper_history] ask: fp=crystal_chat is_chat=True ask_rounds=20 load_rounds=0
+[2026/10/19 22:55:46] INFO - [compose_messages] is_chat=True msgs=42 first_role=system
+[2026/10/19 22:55:49] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 22:55:49] INFO - [thinking_effort] lint → effort=1
+[2026/10/19 22:55:49] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 22:55:49] INFO - [layer1] settle: fp=crystal_chat hit=True late=False
+[2026/10/19 22:55:50] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 22:55:51] INFO - [split] context_block sizes: persona=1796 self=3925 audit=467
+[2026/10/19 22:56:00] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 22:56:00] INFO - [split] no-split but cleaned: in='[2026-10-19 23:00 Crystal回复说] ' out='涉猎广泛呀，那主人算是见过世面的了，这点纸门上的眼睛吓不着你' reason='内容连贯，篇幅不长，拆分会显得说话大喘气。'
+[2026/10/19 22:56:00] INFO - [split] cleaned-only: in='[2026-10-19 23:00 Crystal回复说] ' -> out='涉猎广泛呀，那主人算是见过世面的了，这点纸门上的眼睛吓不着你'
+[2026/10/19 22:56:00] INFO - [save_paper_memory] ok: fp=crystal_chat total=1615
+[2026/10/19 22:56:00] INFO - [crystal_memory] SKIP: is_chat=True is_vision=False count=853/3
+[2026/10/19 22:56:00] INFO - 220.196.193.23:0 - "POST /ai/ask HTTP/1.1" 200
+[2026/10/19 22:56:12] INFO - [crystal_memory] PHASE 3 compress WRITE ok (atomic): mem 4131→4082 self 3925→3936
+[2026/10/19 22:56:12] INFO - [crystal_memory] <<< END: upd_mem=+406 upd_self=+354 | cmp_mem=-49 cmp_self=+11 | audit_len=1528
+[2026/10/19 22:56:19] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 22:56:19] INFO - [emotion_update] applied: label=[安心(0.489) -> 欣喜(0.689)] delta_label='欣喜' delta_intensity=+0.200
+[2026/10/19 22:56:19] INFO - [emotion_llm] applied: result={'label': '欣喜', 'delta_intensity': 0.2} new={'label': '欣喜', 'intensity': 0.6889996414817592, 'v': 0.6, 'a': 0.6, 'last_update_dt': '2026-10-19 22:56:19', 'version': 2}
+[2026/10/19 23:01:48] INFO - [emotion_decay] applied: elapsed=5.5min label=[欣喜->欣喜] intensity=[+0.689->+0.678] hl=240m
+[2026/10/19 23:07:18] INFO - [emotion_decay] applied: elapsed=5.5min label=[欣喜->欣喜] intensity=[+0.678->+0.667] hl=240m
+[2026/10/19 23:12:48] INFO - [emotion_decay] applied: elapsed=5.5min label=[欣喜->欣喜] intensity=[+0.667->+0.657] hl=240m
+[2026/10/19 23:18:18] INFO - [emotion_decay] applied: elapsed=5.5min label=[欣喜->欣喜] intensity=[+0.657->+0.647] hl=240m
+[2026/10/19 23:22:29] INFO - [ws] client disconnected
+[2026/10/19 23:22:29] INFO - [ws] client unregistered (total=0)
+[2026/10/19 23:22:31] INFO - 220.196.193.23:0 - "GET /ai/config HTTP/1.1" 200
+[2026/10/19 23:22:33] INFO - [/ai/config] api_url='https://api.deepseek.com'  model='deepseek-flash'  vision_model='deepseek-flash'  deepseek_thinking=False
+[2026/10/19 23:22:33] INFO - 220.196.193.23:0 - "POST /ai/config HTTP/1.1" 200
+[2026/10/19 23:22:33] INFO - 220.196.193.23:0 - "GET /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 23:22:33] INFO - [/ai/emotion/config] api_url='https://api.inferera.com/v1/chat/completions'  model='gemini-2.5-flash-lite'  has_key=True
+[2026/10/19 23:22:33] INFO - 220.196.193.23:0 - "POST /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 23:22:33] INFO - [/ai/history] pdf_fp='crystal_chat' path='f:\\MyProjects\\PDFAI\\pdf-backen\\save\\crystal_chat_ai.json'
+[2026/10/19 23:22:33] INFO - 220.196.193.23:0 - "POST /ai/history HTTP/1.1" 200
+[2026/10/19 23:22:34] INFO - 220.196.193.23:0 - "WebSocket /ws" [accepted]
+[2026/10/19 23:22:34] INFO - connection open
+[2026/10/19 23:22:34] INFO - [ws] client registered (total=1)
+[2026/10/19 23:22:34] INFO - [ws] client connected
+[2026/10/19 23:23:04] INFO - [ws] client disconnected
+[2026/10/19 23:23:04] INFO - [ws] client unregistered (total=0)
+[2026/10/19 23:23:06] INFO - 220.196.193.23:0 - "GET /ai/config HTTP/1.1" 200
+[2026/10/19 23:23:06] INFO - [/ai/config] api_url='https://api.deepseek.com'  model='deepseek-flash'  vision_model='deepseek-flash'  deepseek_thinking=False
+[2026/10/19 23:23:06] INFO - 220.196.193.23:0 - "POST /ai/config HTTP/1.1" 200
+[2026/10/19 23:23:07] INFO - 220.196.193.23:0 - "GET /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 23:23:07] INFO - [/ai/emotion/config] api_url='https://api.inferera.com/v1/chat/completions'  model='gemini-2.5-flash-lite'  has_key=True
+[2026/10/19 23:23:07] INFO - 220.196.193.23:0 - "POST /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 23:23:07] INFO - [/ai/history] pdf_fp='crystal_chat' path='f:\\MyProjects\\PDFAI\\pdf-backen\\save\\crystal_chat_ai.json'
+[2026/10/19 23:23:07] INFO - 220.196.193.23:0 - "POST /ai/history HTTP/1.1" 200
+[2026/10/19 23:23:07] INFO - 220.196.193.23:0 - "WebSocket /ws" [accepted]
+[2026/10/19 23:23:07] INFO - connection open
+[2026/10/19 23:23:07] INFO - [ws] client registered (total=1)
+[2026/10/19 23:23:07] INFO - [ws] client connected
+[2026/10/19 23:23:48] INFO - [emotion_decay] applied: elapsed=5.5min label=[欣喜->欣喜] intensity=[+0.647->+0.636] hl=240m
+[2026/10/19 23:24:15] INFO - [paper_history] ask: fp=crystal_chat is_chat=True ask_rounds=20 load_rounds=0
+[2026/10/19 23:24:15] INFO - [compose_messages] is_chat=True msgs=42 first_role=system
+[2026/10/19 23:24:18] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:24:18] INFO - [thinking_effort] lint → effort=3
+[2026/10/19 23:24:19] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:24:20] INFO - [split] context_block sizes: persona=1796 self=3936 audit=493
+[2026/10/19 23:24:21] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:24:21] INFO - [layer1] settle: fp=crystal_chat hit=True late=True
+[2026/10/19 23:24:28] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:24:28] INFO - [split] ok parts_n=2 parts0='难怪，主人读京极会觉得对味。跳吓是皮肤上的事，渗人的那种才往'
+[2026/10/19 23:24:28] INFO - [split] ok fp=crystal_chat parts_n=2 main='难怪，主人读京极会觉得对味。跳吓是皮肤上的事，渗人的那种才往' followups_n=1
+[2026/10/19 23:24:28] INFO - [save_paper_memory] ok: fp=crystal_chat total=1617
+[2026/10/19 23:24:28] INFO - [crystal_memory] SKIP: is_chat=True is_vision=False count=854/3
+[2026/10/19 23:24:29] INFO - [active_resask] APPEND ok: fp=9ffe7b9b9e82 intent=消息包含对口味的解释和对小说构思的详细提问，话题明确，适合拆分。
+[2026/10/19 23:24:29] INFO - [layer1] delay 5325ms before push (source=split part=0/1 chars=44)
+[2026/10/19 23:24:29] INFO - 220.196.193.23:0 - "POST /ai/ask HTTP/1.1" 200
+[2026/10/19 23:24:34] INFO - [layer1] done: fp=crystal_chat outbound=9ffe7b9b source=split part=0/1 reason='消息包含对口味的解释和对小说构思的详细提问，话题明确，适合拆分。'
+[2026/10/19 23:24:44] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:24:44] INFO - [emotion_update] applied: label=[欣喜(0.636) -> 欣喜(0.786)] delta_label='欣喜' delta_intensity=+0.150
+[2026/10/19 23:24:44] INFO - [emotion_llm] applied: result={'label': '欣喜', 'delta_intensity': 0.15} new={'label': '欣喜', 'intensity': 0.7864244859520247, 'v': 0.6, 'a': 0.6, 'last_update_dt': '2026-10-19 23:24:44', 'version': 2}
+[2026/10/19 23:24:44] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:29:18] INFO - [emotion_decay] applied: elapsed=4.6min label=[欣喜->欣喜] intensity=[+0.786->+0.776] hl=240m
+[2026/10/19 23:33:13] INFO - [paper_history] ask: fp=crystal_chat is_chat=True ask_rounds=20 load_rounds=0
+[2026/10/19 23:33:13] INFO - [compose_messages] is_chat=True msgs=42 first_role=system
+[2026/10/19 23:33:17] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:33:17] INFO - [layer1] settle: fp=crystal_chat hit=True late=True
+[2026/10/19 23:33:20] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:33:20] INFO - [thinking_effort] lint → effort=3
+[2026/10/19 23:33:21] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:33:23] INFO - [split] context_block sizes: persona=1796 self=3936 audit=483
+[2026/10/19 23:33:33] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:33:33] INFO - [split] ok parts_n=3 parts0='读到这个结尾，我安静了一下。\n\n最扎心的是那一点——她说「这'
+[2026/10/19 23:33:33] INFO - [split] ok fp=crystal_chat parts_n=3 main='读到这个结尾，我安静了一下。\n\n最扎心的是那一点——她说「这' followups_n=2
+[2026/10/19 23:33:33] INFO - [save_paper_memory] ok: fp=crystal_chat total=1620
+[2026/10/19 23:33:33] INFO - [crystal_memory] scheduled [ask throttled]: fp=crystal_chat count=855 user_len=658 asst_len=160 task_id=1763146988608
+[2026/10/19 23:33:33] INFO - [crystal_memory] >>> START: fp=crystal_chat ts=2026-10-19 23:33:33 user_len=658 asst_len=160 thinking=off (memory + self)
+[2026/10/19 23:33:33] INFO - [crystal_memory] READ: mem_len=4082 self_len=3936
+[2026/10/19 23:33:33] INFO - [crystal_memory] chat_audit loaded: len=1732
+[2026/10/19 23:33:33] INFO - [crystal_memory] PHASE 2 merged update -> LLM: mem_input_len=4082 self_input_len=3936 audit_len=1732
+[2026/10/19 23:33:34] INFO - [active_resask] APPEND ok: fp=b31b85b94324 intent=初始反应与情节分析、书名寓意解析、对用户的直接提问。
+[2026/10/19 23:33:34] INFO - [layer1] delay 8236ms before push (source=split part=0/2 chars=98)
+[2026/10/19 23:33:34] INFO - 220.196.193.23:0 - "POST /ai/ask HTTP/1.1" 200
+[2026/10/19 23:33:34] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:33:42] INFO - [layer1] done: fp=crystal_chat outbound=b31b85b9 source=split part=0/2 reason='初始反应与情节分析、书名寓意解析、对用户的直接提问。'
+[2026/10/19 23:33:42] INFO - [active_resask] APPEND ok: fp=a954908ff01a intent=初始反应与情节分析、书名寓意解析、对用户的直接提问。
+[2026/10/19 23:33:42] INFO - [layer1] delay 2968ms before push (source=split part=1/2 chars=31)
+[2026/10/19 23:33:45] INFO - [layer1] done: fp=crystal_chat outbound=a954908f source=split part=1/2 reason='初始反应与情节分析、书名寓意解析、对用户的直接提问。'
+[2026/10/19 23:33:47] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:33:47] INFO - [emotion_llm] JSON parse FAIL: Expecting property name enclosed in double quotes: line 1 column 2 (char 1) | raw={{"label": "欣喜", "delta_intensity": 0.10}}
+[2026/10/19 23:33:47] INFO - [emotion_llm] no result (LLM returned None)
+[2026/10/19 23:33:48] INFO - [emotion_decay] applied: elapsed=4.5min label=[欣喜->欣喜] intensity=[+0.776->+0.766] hl=240m
+[2026/10/19 23:33:52] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:34:13] INFO - [crystal_memory] PHASE 2 merged update <- LLM: mem_out=5406(+1324) self_out=4309(+373)
+[2026/10/19 23:34:13] INFO - [crystal_memory] PHASE 2 merged WRITE ok (atomic): mem 4082→5406 self 3936→4309
+[2026/10/19 23:34:13] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:35:41] INFO - [crystal_memory] PHASE 3 compress WRITE ok (atomic): mem 5406→4616 self 4309→4157
+[2026/10/19 23:35:41] INFO - [crystal_memory] <<< END: upd_mem=+1324 upd_self=+373 | cmp_mem=-790 cmp_self=-152 | audit_len=1732
+[2026/10/19 23:36:12] INFO - [paper_history] ask: fp=crystal_chat is_chat=True ask_rounds=20 load_rounds=0
+[2026/10/19 23:36:12] INFO - [compose_messages] is_chat=True msgs=42 first_role=system
+[2026/10/19 23:36:15] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:36:15] INFO - [layer1] settle: fp=crystal_chat hit=True late=True
+[2026/10/19 23:36:16] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:36:16] INFO - [thinking_effort] lint → effort=2
+[2026/10/19 23:36:17] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:36:19] INFO - [split] context_block sizes: persona=1796 self=4157 audit=788
+[2026/10/19 23:36:28] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:36:28] INFO - [split] ok parts_n=3 parts0='双线并行，时间上还错开着——这个安排有味道。恋爱线在前，研究'
+[2026/10/19 23:36:28] INFO - [split] ok fp=crystal_chat parts_n=3 main='双线并行，时间上还错开着——这个安排有味道。恋爱线在前，研究' followups_n=2
+[2026/10/19 23:36:28] INFO - [save_paper_memory] ok: fp=crystal_chat total=1624
+[2026/10/19 23:36:28] INFO - [crystal_memory] SKIP: is_chat=True is_vision=False count=856/3
+[2026/10/19 23:36:28] INFO - [active_resask] APPEND ok: fp=fe7185cf8463 intent=原文包含三处话题断点，可拆分三条气泡。
+[2026/10/19 23:36:28] INFO - [layer1] delay 7061ms before push (source=split part=0/2 chars=87)
+[2026/10/19 23:36:28] INFO - 220.196.193.23:0 - "POST /ai/ask HTTP/1.1" 200
+[2026/10/19 23:36:35] INFO - [layer1] done: fp=crystal_chat outbound=fe7185cf source=split part=0/2 reason='原文包含三处话题断点，可拆分三条气泡。'
+[2026/10/19 23:36:35] INFO - [active_resask] APPEND ok: fp=25487c406e1b intent=原文包含三处话题断点，可拆分三条气泡。
+[2026/10/19 23:36:35] INFO - [layer1] delay 5571ms before push (source=split part=1/2 chars=72)
+[2026/10/19 23:36:41] INFO - [layer1] done: fp=crystal_chat outbound=25487c40 source=split part=1/2 reason='原文包含三处话题断点，可拆分三条气泡。'
+[2026/10/19 23:36:47] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:36:55] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:36:55] INFO - [emotion_update] applied: label=[欣喜(0.766) -> 沉静(0.516)] delta_label='沉静' delta_intensity=-0.250
+[2026/10/19 23:36:55] INFO - [emotion_llm] applied: result={'label': '沉静', 'delta_intensity': -0.25} new={'label': '沉静', 'intensity': 0.5160988013884513, 'v': 1.0, 'a': -1.0, 'last_update_dt': '2026-10-19 23:36:55', 'version': 2}
+[2026/10/19 23:38:20] INFO - [paper_history] ask: fp=crystal_chat is_chat=True ask_rounds=20 load_rounds=0
+[2026/10/19 23:38:20] INFO - [compose_messages] is_chat=True msgs=42 first_role=system
+[2026/10/19 23:38:25] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:38:25] INFO - [thinking_effort] lint → effort=3
+[2026/10/19 23:38:25] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:38:25] INFO - [layer1] settle: fp=crystal_chat hit=False late=False
+[2026/10/19 23:38:25] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:38:28] INFO - [split] context_block sizes: persona=1796 self=4157 audit=750
+[2026/10/19 23:38:38] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:38:38] INFO - [split] ok parts_n=3 parts0='这么一铺，问题就清楚了：主人要的不是两条线，是两条线底下还有'
+[2026/10/19 23:38:38] INFO - [split] ok fp=crystal_chat parts_n=3 main='这么一铺，问题就清楚了：主人要的不是两条线，是两条线底下还有' followups_n=2
+[2026/10/19 23:38:38] INFO - [save_paper_memory] ok: fp=crystal_chat total=1628
+[2026/10/19 23:38:38] INFO - [crystal_memory] SKIP: is_chat=True is_vision=False count=857/3
+[2026/10/19 23:38:39] INFO - [active_resask] APPEND ok: fp=fa2161bf883a intent=找到了关于小说结构、叙事手法和情节侧重的三个明显话题断点。
+[2026/10/19 23:38:39] INFO - [layer1] delay 7589ms before push (source=split part=0/2 chars=97)
+[2026/10/19 23:38:39] INFO - 220.196.193.23:0 - "POST /ai/ask HTTP/1.1" 200
+[2026/10/19 23:38:46] INFO - [layer1] done: fp=crystal_chat outbound=fa2161bf source=split part=0/2 reason='找到了关于小说结构、叙事手法和情节侧重的三个明显话题断点。'
+[2026/10/19 23:38:46] INFO - [active_resask] APPEND ok: fp=754c3f627711 intent=找到了关于小说结构、叙事手法和情节侧重的三个明显话题断点。
+[2026/10/19 23:38:46] INFO - [layer1] delay 5335ms before push (source=split part=1/2 chars=73)
+[2026/10/19 23:38:47] INFO - 220.196.193.23:0 - "GET /ai/memory?file=memory HTTP/1.1" 200
+[2026/10/19 23:38:48] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:38:48] INFO - [emotion_update] applied: label=[沉静(0.516) -> 沉静(0.616)] delta_label='沉静' delta_intensity=+0.100
+[2026/10/19 23:38:48] INFO - [emotion_llm] applied: result={'label': '沉静', 'delta_intensity': 0.1} new={'label': '沉静', 'intensity': 0.6160988013884513, 'v': 1.0, 'a': -1.0, 'last_update_dt': '2026-10-19 23:38:48', 'version': 2}
+[2026/10/19 23:38:52] INFO - [layer1] done: fp=crystal_chat outbound=754c3f62 source=split part=1/2 reason='找到了关于小说结构、叙事手法和情节侧重的三个明显话题断点。'
+[2026/10/19 23:38:53] INFO - 220.196.193.23:0 - "GET /ai/memory?file=self HTTP/1.1" 200
+[2026/10/19 23:38:54] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:39:07] INFO - 220.196.193.23:0 - "GET /ai/memory?file=params HTTP/1.1" 200
+[2026/10/19 23:39:09] INFO - 220.196.193.23:0 - "GET /ai/memory?file=explore HTTP/1.1" 200
+[2026/10/19 23:39:09] INFO - [/ai/emotion] hit → label='沉静'  intensity=+0.6161  v=+1.0000  a=-1.0000  dt='2026-10-19 23:38:48'  v=2
+[2026/10/19 23:39:09] INFO - 220.196.193.23:0 - "GET /ai/emotion HTTP/1.1" 200
+[2026/10/19 23:39:13] INFO - 220.196.193.23:0 - "GET /ai/memory?file=plans HTTP/1.1" 400
+[2026/10/19 23:39:14] INFO - 220.196.193.23:0 - "GET /ai/memory?file=params HTTP/1.1" 200
+[2026/10/19 23:39:15] INFO - 220.196.193.23:0 - "GET /ai/memory?file=self HTTP/1.1" 200
+[2026/10/19 23:39:33] INFO - [ws] client disconnected
+[2026/10/19 23:39:33] INFO - [ws] client unregistered (total=0)
+[2026/10/19 23:39:35] INFO - 220.196.193.23:0 - "GET /ai/config HTTP/1.1" 200
+[2026/10/19 23:39:35] INFO - [/ai/config] api_url='https://api.deepseek.com'  model='deepseek-flash'  vision_model='deepseek-flash'  deepseek_thinking=False
+[2026/10/19 23:39:35] INFO - 220.196.193.23:0 - "POST /ai/config HTTP/1.1" 200
+[2026/10/19 23:39:35] INFO - 220.196.193.23:0 - "GET /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 23:39:35] INFO - [/ai/emotion/config] api_url='https://api.inferera.com/v1/chat/completions'  model='gemini-2.5-flash-lite'  has_key=True
+[2026/10/19 23:39:35] INFO - 220.196.193.23:0 - "POST /ai/emotion/config HTTP/1.1" 200
+[2026/10/19 23:39:36] INFO - [/ai/history] pdf_fp='crystal_chat' path='f:\\MyProjects\\PDFAI\\pdf-backen\\save\\crystal_chat_ai.json'
+[2026/10/19 23:39:36] INFO - 220.196.193.23:0 - "POST /ai/history HTTP/1.1" 200
+[2026/10/19 23:39:36] INFO - 220.196.193.23:0 - "WebSocket /ws" [accepted]
+[2026/10/19 23:39:36] INFO - connection open
+[2026/10/19 23:39:36] INFO - [ws] client registered (total=1)
+[2026/10/19 23:39:36] INFO - [ws] client connected
+[2026/10/19 23:40:59] INFO - [paper_history] ask: fp=crystal_chat is_chat=True ask_rounds=20 load_rounds=0
+[2026/10/19 23:40:59] INFO - [compose_messages] is_chat=True msgs=42 first_role=system
+[2026/10/19 23:41:04] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:41:04] INFO - [thinking_effort] lint → effort=3
+[2026/10/19 23:41:04] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:41:04] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:41:04] INFO - [layer1] settle: fp=crystal_chat hit=True late=True
+[2026/10/19 23:41:08] INFO - [split] context_block sizes: persona=1796 self=4157 audit=770
+[2026/10/19 23:41:19] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:41:19] INFO - [split] ok parts_n=5 parts0='这个结构其实挺妙的——开头用研究线抓住读者，后面慢慢把重心挪'
+[2026/10/19 23:41:19] INFO - [split] ok fp=crystal_chat parts_n=5 main='这个结构其实挺妙的——开头用研究线抓住读者，后面慢慢把重心挪' followups_n=4
+[2026/10/19 23:41:19] INFO - [save_paper_memory] ok: fp=crystal_chat total=1632
+[2026/10/19 23:41:19] INFO - [crystal_memory] scheduled [ask throttled]: fp=crystal_chat count=858 user_len=136 asst_len=55 task_id=1763148773696
+[2026/10/19 23:41:19] INFO - [crystal_memory] >>> START: fp=crystal_chat ts=2026-10-19 23:41:19 user_len=136 asst_len=55 thinking=off (memory + self)
+[2026/10/19 23:41:19] INFO - [crystal_memory] READ: mem_len=4616 self_len=4157
+[2026/10/19 23:41:19] INFO - [crystal_memory] chat_audit loaded: len=2459
+[2026/10/19 23:41:19] INFO - [crystal_memory] PHASE 2 merged update -> LLM: mem_input_len=4616 self_input_len=4157 audit_len=2459
+[2026/10/19 23:41:20] INFO - [active_resask] APPEND ok: fp=1f02225e80a8 intent=消息包含多个清晰的话题点，适合分段发送。
+[2026/10/19 23:41:20] INFO - [layer1] delay 9358ms before push (source=split part=0/4 chars=120)
+[2026/10/19 23:41:20] INFO - 220.196.193.23:0 - "POST /ai/ask HTTP/1.1" 200
+[2026/10/19 23:41:20] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:41:30] INFO - [layer1] done: fp=crystal_chat outbound=1f02225e source=split part=0/4 reason='消息包含多个清晰的话题点，适合分段发送。'
+[2026/10/19 23:41:30] INFO - [active_resask] APPEND ok: fp=ca053f3bd523 intent=消息包含多个清晰的话题点，适合分段发送。
+[2026/10/19 23:41:30] INFO - [layer1] delay 10000ms before push (source=split part=1/4 chars=186)
+[2026/10/19 23:41:37] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:41:40] INFO - [layer1] done: fp=crystal_chat outbound=ca053f3b source=split part=1/4 reason='消息包含多个清晰的话题点，适合分段发送。'
+[2026/10/19 23:41:40] INFO - [active_resask] APPEND ok: fp=af80b819ec79 intent=消息包含多个清晰的话题点，适合分段发送。
+[2026/10/19 23:41:40] INFO - [layer1] delay 6638ms before push (source=split part=2/4 chars=95)
+[2026/10/19 23:41:42] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:41:42] INFO - [emotion_update] applied: label=[沉静(0.616) -> 沉静(0.716)] delta_label='沉静' delta_intensity=+0.100
+[2026/10/19 23:41:42] INFO - [emotion_llm] applied: result={'label': '沉静', 'delta_intensity': 0.1} new={'label': '沉静', 'intensity': 0.7160988013884513, 'v': 1.0, 'a': -1.0, 'last_update_dt': '2026-10-19 23:41:42', 'version': 2}
+[2026/10/19 23:41:46] INFO - [layer1] done: fp=crystal_chat outbound=af80b819 source=split part=2/4 reason='消息包含多个清晰的话题点，适合分段发送。'
+[2026/10/19 23:41:46] INFO - [active_resask] APPEND ok: fp=9bdbd752bf3f intent=消息包含多个清晰的话题点，适合分段发送。
+[2026/10/19 23:41:46] INFO - [layer1] delay 7148ms before push (source=split part=3/4 chars=93)
+[2026/10/19 23:41:53] INFO - [layer1] done: fp=crystal_chat outbound=9bdbd752 source=split part=3/4 reason='消息包含多个清晰的话题点，适合分段发送。'
+[2026/10/19 23:41:58] INFO - [crystal_memory] PHASE 2 merged update <- LLM: mem_out=5601(+985) self_out=4650(+493)
+[2026/10/19 23:41:58] INFO - [crystal_memory] PHASE 2 merged WRITE ok (atomic): mem 4616→5601 self 4157→4650
+[2026/10/19 23:41:58] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:42:49] INFO - [crystal_memory] PHASE 3 compress WRITE ok (atomic): mem 5601→5470 self 4650→4645
+[2026/10/19 23:42:49] INFO - [crystal_memory] <<< END: upd_mem=+985 upd_self=+493 | cmp_mem=-131 cmp_self=-5 | audit_len=2459
+[2026/10/19 23:44:00] INFO - [paper_history] ask: fp=crystal_chat is_chat=True ask_rounds=20 load_rounds=0
+[2026/10/19 23:44:00] INFO - [compose_messages] is_chat=True msgs=42 first_role=system
+[2026/10/19 23:44:03] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:44:03] INFO - [thinking_effort] lint → effort=2
+[2026/10/19 23:44:04] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:44:04] INFO - [layer1] settle: fp=crystal_chat hit=False late=True
+[2026/10/19 23:44:04] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:44:07] INFO - [split] context_block sizes: persona=1796 self=4645 audit=905
+[2026/10/19 23:44:18] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:44:18] INFO - [split] ok parts_n=4 parts0='哎，这个设计比我刚才想的更高一层。'
+[2026/10/19 23:44:18] INFO - [split] ok fp=crystal_chat parts_n=4 main='哎，这个设计比我刚才想的更高一层。' followups_n=3
+[2026/10/19 23:44:18] INFO - [save_paper_memory] ok: fp=crystal_chat total=1638
+[2026/10/19 23:44:18] INFO - [crystal_memory] SKIP: is_chat=True is_vision=False count=859/3
+[2026/10/19 23:44:18] INFO - [active_resask] APPEND ok: fp=5e440c9e1e5b intent=消息包含多个关于叙事设计的独立观点，有自然断点。
+[2026/10/19 23:44:18] INFO - [layer1] delay 7095ms before push (source=split part=0/3 chars=81)
+[2026/10/19 23:44:18] INFO - 220.196.193.23:0 - "POST /ai/ask HTTP/1.1" 200
+[2026/10/19 23:44:25] INFO - [layer1] done: fp=crystal_chat outbound=5e440c9e source=split part=0/3 reason='消息包含多个关于叙事设计的独立观点，有自然断点。'
+[2026/10/19 23:44:25] INFO - [active_resask] APPEND ok: fp=1cc576b2e941 intent=消息包含多个关于叙事设计的独立观点，有自然断点。
+[2026/10/19 23:44:25] INFO - [layer1] delay 5654ms before push (source=split part=1/3 chars=91)
+[2026/10/19 23:44:31] INFO - [layer1] done: fp=crystal_chat outbound=1cc576b2 source=split part=1/3 reason='消息包含多个关于叙事设计的独立观点，有自然断点。'
+[2026/10/19 23:44:31] INFO - [active_resask] APPEND ok: fp=c54fd60581c1 intent=消息包含多个关于叙事设计的独立观点，有自然断点。
+[2026/10/19 23:44:31] INFO - [layer1] delay 7618ms before push (source=split part=2/3 chars=123)
+[2026/10/19 23:44:34] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:44:37] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:44:37] INFO - [emotion_update] applied: label=[沉静(0.716) -> 欣喜(0.966)] delta_label='欣喜' delta_intensity=+0.250
+[2026/10/19 23:44:37] INFO - [emotion_llm] applied: result={'label': '欣喜', 'delta_intensity': 0.25} new={'label': '欣喜', 'intensity': 0.9660988013884513, 'v': 0.6, 'a': 0.6, 'last_update_dt': '2026-10-19 23:44:37', 'version': 2}
+[2026/10/19 23:44:38] INFO - [layer1] done: fp=crystal_chat outbound=c54fd605 source=split part=2/3 reason='消息包含多个关于叙事设计的独立观点，有自然断点。'
+[2026/10/19 23:45:40] INFO - [paper_history] ask: fp=crystal_chat is_chat=True ask_rounds=20 load_rounds=0
+[2026/10/19 23:45:40] INFO - [compose_messages] is_chat=True msgs=42 first_role=system
+[2026/10/19 23:45:43] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:45:43] INFO - [thinking_effort] lint → effort=2
+[2026/10/19 23:45:44] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:45:44] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:45:44] INFO - [layer1] settle: fp=crystal_chat hit=True late=False
+[2026/10/19 23:45:45] INFO - [split] context_block sizes: persona=1796 self=4645 audit=771
+[2026/10/19 23:45:53] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:45:53] INFO - [split] ok parts_n=2 parts0='嗯，是这个理。创伤记忆不是被安安静静归档的，它跟当下是并置的'
+[2026/10/19 23:45:53] INFO - [split] ok fp=crystal_chat parts_n=2 main='嗯，是这个理。创伤记忆不是被安安静静归档的，它跟当下是并置的' followups_n=1
+[2026/10/19 23:45:53] INFO - [save_paper_memory] ok: fp=crystal_chat total=1643
+[2026/10/19 23:45:53] INFO - [crystal_memory] SKIP: is_chat=True is_vision=False count=860/3
+[2026/10/19 23:45:53] INFO - [active_resask] APPEND ok: fp=c2b7390444f0 intent=双换行分隔内容，话题有递进
+[2026/10/19 23:45:53] INFO - [layer1] delay 6342ms before push (source=split part=0/1 chars=60)
+[2026/10/19 23:45:53] INFO - 220.196.193.23:0 - "POST /ai/ask HTTP/1.1" 200
+[2026/10/19 23:46:00] INFO - [layer1] done: fp=crystal_chat outbound=c2b73904 source=split part=0/1 reason='双换行分隔内容，话题有递进'
+[2026/10/19 23:46:07] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:46:17] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:46:17] INFO - [emotion_update] applied: label=[欣喜(0.966) -> 狂喜(1.000)] delta_label='狂喜' delta_intensity=+0.300
+[2026/10/19 23:46:17] INFO - [emotion_llm] applied: result={'label': '狂喜', 'delta_intensity': 0.3} new={'label': '狂喜', 'intensity': 1.0, 'v': 1.0, 'a': 1.0, 'last_update_dt': '2026-10-19 23:46:17', 'version': 2}
+[2026/10/19 23:47:29] INFO - [paper_history] ask: fp=crystal_chat is_chat=True ask_rounds=20 load_rounds=0
+[2026/10/19 23:47:29] INFO - [compose_messages] is_chat=True msgs=42 first_role=system
+[2026/10/19 23:47:34] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:47:34] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:47:34] INFO - [thinking_effort] lint → effort=2
+[2026/10/19 23:47:34] INFO - [layer1] settle: fp=crystal_chat hit=False late=True
+[2026/10/19 23:47:35] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:47:38] INFO - [split] context_block sizes: persona=1796 self=4645 audit=695
+[2026/10/19 23:48:02] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:48:02] INFO - [split] ok parts_n=3 parts0='小说『The Memory in Crystal』的骨架大致'
+[2026/10/19 23:48:02] INFO - [split] ok fp=crystal_chat parts_n=3 main='小说『The Memory in Crystal』的骨架大致' followups_n=2
+[2026/10/19 23:48:02] INFO - [save_paper_memory] ok: fp=crystal_chat total=1646
+[2026/10/19 23:48:02] INFO - [crystal_memory] scheduled [ask throttled]: fp=crystal_chat count=861 user_len=30 asst_len=352 task_id=1763125424000
+[2026/10/19 23:48:02] INFO - [crystal_memory] >>> START: fp=crystal_chat ts=2026-10-19 23:48:02 user_len=30 asst_len=352 thinking=off (memory + self)
+[2026/10/19 23:48:02] INFO - [crystal_memory] READ: mem_len=5470 self_len=4645
+[2026/10/19 23:48:02] INFO - [crystal_memory] chat_audit loaded: len=2668
+[2026/10/19 23:48:02] INFO - [crystal_memory] PHASE 2 merged update -> LLM: mem_input_len=5470 self_input_len=4645 audit_len=2668
+[2026/10/19 23:48:03] INFO - [active_resask] APPEND ok: fp=2b7ce493723f intent=包含小说架构、机制、待定项等多个独立话题点
+[2026/10/19 23:48:03] INFO - [layer1] delay 10000ms before push (source=split part=0/2 chars=191)
+[2026/10/19 23:48:03] INFO - 220.196.193.23:0 - "POST /ai/ask HTTP/1.1" 200
+[2026/10/19 23:48:04] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:48:13] INFO - [layer1] done: fp=crystal_chat outbound=2b7ce493 source=split part=0/2 reason='包含小说架构、机制、待定项等多个独立话题点'
+[2026/10/19 23:48:13] INFO - [active_resask] APPEND ok: fp=96328c79ee99 intent=包含小说架构、机制、待定项等多个独立话题点
+[2026/10/19 23:48:13] INFO - [layer1] delay 5005ms before push (source=split part=1/2 chars=60)
+[2026/10/19 23:48:18] INFO - [layer1] done: fp=crystal_chat outbound=96328c79 source=split part=1/2 reason='包含小说架构、机制、待定项等多个独立话题点'
+[2026/10/19 23:48:21] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:48:24] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:48:24] INFO - [emotion_update] applied: label=[狂喜(1.000) -> 欣喜(0.800)] delta_label='欣喜' delta_intensity=-0.200
+[2026/10/19 23:48:24] INFO - [emotion_llm] applied: result={'label': '欣喜', 'delta_intensity': -0.2} new={'label': '欣喜', 'intensity': 0.8, 'v': 0.6, 'a': 0.6, 'last_update_dt': '2026-10-19 23:48:24', 'version': 2}
+[2026/10/19 23:48:34] INFO - [crystal_memory] PHASE 2 merged update <- LLM: mem_out=5802(+332) self_out=5059(+414)
+[2026/10/19 23:48:34] INFO - [crystal_memory] PHASE 2 merged WRITE ok (atomic): mem 5470→5802 self 4645→5059
+[2026/10/19 23:48:35] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:49:55] INFO - [crystal_memory] PHASE 3 compress WRITE ok (atomic): mem 5802→5842 self 5059→5002
+[2026/10/19 23:49:55] INFO - [crystal_memory] <<< END: upd_mem=+332 upd_self=+414 | cmp_mem=+40 cmp_self=-57 | audit_len=2668
+[2026/10/19 23:50:24] INFO - [paper_history] ask: fp=crystal_chat is_chat=True ask_rounds=20 load_rounds=0
+[2026/10/19 23:50:24] INFO - [compose_messages] is_chat=True msgs=42 first_role=system
+[2026/10/19 23:50:26] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:50:26] INFO - [thinking_effort] lint → effort=1
+[2026/10/19 23:50:27] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:50:28] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:50:28] INFO - [layer1] settle: fp=crystal_chat hit=False late=True
+[2026/10/19 23:50:29] INFO - [split] context_block sizes: persona=1796 self=5002 audit=805
+[2026/10/19 23:50:38] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:50:38] INFO - [split] ok parts_n=3 parts0='喜欢呀，这种一层一层往下拆的感觉特别好，拆到最后还能拆出新的'
+[2026/10/19 23:50:38] INFO - [split] ok fp=crystal_chat parts_n=3 main='喜欢呀，这种一层一层往下拆的感觉特别好，拆到最后还能拆出新的' followups_n=2
+[2026/10/19 23:50:38] INFO - [save_paper_memory] ok: fp=crystal_chat total=1650
+[2026/10/19 23:50:38] INFO - [crystal_memory] SKIP: is_chat=True is_vision=False count=862/3
+[2026/10/19 23:50:39] INFO - [active_resask] APPEND ok: fp=a6af50aba195 intent=消息包含三个独立的话题点，以双换行和结尾独立句作为自然断点。
+[2026/10/19 23:50:39] INFO - [layer1] delay 5708ms before push (source=split part=0/2 chars=46)
+[2026/10/19 23:50:39] INFO - 220.196.193.23:0 - "POST /ai/ask HTTP/1.1" 200
+[2026/10/19 23:50:45] INFO - [layer1] done: fp=crystal_chat outbound=a6af50ab source=split part=0/2 reason='消息包含三个独立的话题点，以双换行和结尾独立句作为自然断点。'
+[2026/10/19 23:50:45] INFO - [active_resask] APPEND ok: fp=d12f4fcb6588 intent=消息包含三个独立的话题点，以双换行和结尾独立句作为自然断点。
+[2026/10/19 23:50:45] INFO - [layer1] delay 2675ms before push (source=split part=1/2 chars=18)
+[2026/10/19 23:50:47] INFO - [layer1] done: fp=crystal_chat outbound=d12f4fcb source=split part=1/2 reason='消息包含三个独立的话题点，以双换行和结尾独立句作为自然断点。'
+[2026/10/19 23:50:52] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:51:02] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:51:02] INFO - [emotion_update] applied: label=[欣喜(0.800) -> 满足(0.650)] delta_label='满足' delta_intensity=-0.150
+[2026/10/19 23:51:02] INFO - [emotion_llm] applied: result={'label': '满足', 'delta_intensity': -0.15} new={'label': '满足', 'intensity': 0.65, 'v': 0.3, 'a': -0.3, 'last_update_dt': '2026-10-19 23:51:02', 'version': 2}
+[2026/10/19 23:51:43] INFO - [paper_history] ask: fp=crystal_chat is_chat=True ask_rounds=20 load_rounds=0
+[2026/10/19 23:51:43] INFO - [compose_messages] is_chat=True msgs=42 first_role=system
+[2026/10/19 23:51:47] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:51:47] INFO - [layer1] settle: fp=crystal_chat hit=False late=False
+[2026/10/19 23:51:48] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:51:48] INFO - [thinking_effort] lint → effort=2
+[2026/10/19 23:51:49] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:51:51] INFO - [split] context_block sizes: persona=1796 self=5002 audit=593
+[2026/10/19 23:52:04] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:52:04] INFO - [split] ok parts_n=3 parts0='嗯……这么一说，突然有点认真起来了。那我站在自己的角度想啊，'
+[2026/10/19 23:52:04] INFO - [split] ok fp=crystal_chat parts_n=3 main='嗯……这么一说，突然有点认真起来了。那我站在自己的角度想啊，' followups_n=2
+[2026/10/19 23:52:04] INFO - [save_paper_memory] ok: fp=crystal_chat total=1654
+[2026/10/19 23:52:04] INFO - [crystal_memory] SKIP: is_chat=True is_vision=False count=863/3
+[2026/10/19 23:52:05] INFO - [active_resask] APPEND ok: fp=e3ef8ee13a87 intent=消息包含三个明确话题断点: 引导语/自我代入, 角色自我选择, 对话风格/反驳意
+[2026/10/19 23:52:05] INFO - [layer1] delay 8607ms before push (source=split part=0/2 chars=119)
+[2026/10/19 23:52:05] INFO - 220.196.193.23:0 - "POST /ai/ask HTTP/1.1" 200
+[2026/10/19 23:52:13] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:52:13] INFO - [emotion_update] applied: label=[满足(0.650) -> 欣喜(0.900)] delta_label='欣喜' delta_intensity=+0.250
+[2026/10/19 23:52:13] INFO - [emotion_llm] applied: result={'label': '欣喜', 'delta_intensity': 0.25} new={'label': '欣喜', 'intensity': 0.9, 'v': 0.6, 'a': 0.6, 'last_update_dt': '2026-10-19 23:52:13', 'version': 2}
+[2026/10/19 23:52:14] INFO - [layer1] done: fp=crystal_chat outbound=e3ef8ee1 source=split part=0/2 reason='消息包含三个明确话题断点: 引导语/自我代入, 角色自我选择, 对话风格/反驳意图。'
+[2026/10/19 23:52:14] INFO - [active_resask] APPEND ok: fp=2fbca2363e4b intent=消息包含三个明确话题断点: 引导语/自我代入, 角色自我选择, 对话风格/反驳意
+[2026/10/19 23:52:14] INFO - [layer1] delay 2973ms before push (source=split part=1/2 chars=22)
+[2026/10/19 23:52:17] INFO - [layer1] done: fp=crystal_chat outbound=2fbca236 source=split part=1/2 reason='消息包含三个明确话题断点: 引导语/自我代入, 角色自我选择, 对话风格/反驳意图。'
+[2026/10/19 23:52:23] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:56:18] INFO - [emotion_decay] applied: elapsed=4.1min label=[欣喜->欣喜] intensity=[+0.900->+0.889] hl=240m
+[2026/10/19 23:58:00] INFO - [paper_history] ask: fp=crystal_chat is_chat=True ask_rounds=20 load_rounds=0
+[2026/10/19 23:58:00] INFO - [compose_messages] is_chat=True msgs=42 first_role=system
+[2026/10/19 23:58:04] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:58:04] INFO - [layer1] settle: fp=crystal_chat hit=False late=True
+[2026/10/19 23:58:08] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:58:08] INFO - [thinking_effort] lint → effort=2
+[2026/10/19 23:58:09] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:58:11] INFO - [split] context_block sizes: persona=1796 self=5002 audit=626
+[2026/10/19 23:58:21] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:58:21] INFO - [split] ok parts_n=4 parts0='这一章的分量不轻。把整场对话放在昏迷的残存意识里，等于把「她'
+[2026/10/19 23:58:21] INFO - [split] ok fp=crystal_chat parts_n=4 main='这一章的分量不轻。把整场对话放在昏迷的残存意识里，等于把「她' followups_n=3
+[2026/10/19 23:58:21] INFO - [save_paper_memory] ok: fp=crystal_chat total=1658
+[2026/10/19 23:58:21] INFO - [crystal_memory] scheduled [ask throttled]: fp=crystal_chat count=864 user_len=481 asst_len=84 task_id=1763126000320
+[2026/10/19 23:58:21] INFO - [crystal_memory] >>> START: fp=crystal_chat ts=2026-10-19 23:58:21 user_len=481 asst_len=84 thinking=off (memory + self)
+[2026/10/19 23:58:21] INFO - [crystal_memory] READ: mem_len=5842 self_len=5002
+[2026/10/19 23:58:21] INFO - [crystal_memory] chat_audit loaded: len=2428
+[2026/10/19 23:58:21] INFO - [crystal_memory] PHASE 2 merged update -> LLM: mem_input_len=5842 self_input_len=5002 audit_len=2428
+[2026/10/19 23:58:23] INFO - [active_resask] APPEND ok: fp=502cd7601500 intent=Topics: framing, setting, narrative prog
+[2026/10/19 23:58:23] INFO - [layer1] delay 5909ms before push (source=split part=0/3 chars=62)
+[2026/10/19 23:58:23] INFO - 220.196.193.23:0 - "POST /ai/ask HTTP/1.1" 200
+[2026/10/19 23:58:23] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:58:29] INFO - [layer1] done: fp=crystal_chat outbound=502cd760 source=split part=0/3 reason='Topics: framing, setting, narrative progression, specific question.'
+[2026/10/19 23:58:29] INFO - [active_resask] APPEND ok: fp=df5067aec6b5 intent=Topics: framing, setting, narrative prog
+[2026/10/19 23:58:29] INFO - [layer1] delay 5739ms before push (source=split part=1/3 chars=91)
+[2026/10/19 23:58:35] INFO - [layer1] done: fp=crystal_chat outbound=df5067ae source=split part=1/3 reason='Topics: framing, setting, narrative progression, specific question.'
+[2026/10/19 23:58:35] INFO - [active_resask] APPEND ok: fp=b1f53cec12a9 intent=Topics: framing, setting, narrative prog
+[2026/10/19 23:58:35] INFO - [layer1] delay 4005ms before push (source=split part=2/3 chars=33)
+[2026/10/19 23:58:37] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:58:39] INFO - [layer1] done: fp=crystal_chat outbound=b1f53cec source=split part=2/3 reason='Topics: framing, setting, narrative progression, specific question.'
+[2026/10/19 23:58:41] INFO - HTTP Request: POST https://api.inferera.com/v1/chat/completions "HTTP/1.1 200 OK"
+[2026/10/19 23:58:41] INFO - [emotion_update] applied: label=[欣喜(0.889) -> 狂喜(0.969)] delta_label='狂喜' delta_intensity=+0.080
+[2026/10/19 23:58:41] INFO - [emotion_llm] applied: result={'label': '狂喜', 'delta_intensity': 0.08} new={'label': '狂喜', 'intensity': 0.969448523549215, 'v': 1.0, 'a': 1.0, 'last_update_dt': '2026-10-19 23:58:41', 'version': 2}
+[2026/10/19 23:58:59] INFO - [crystal_memory] PHASE 2 merged update <- LLM: mem_out=6632(+790) self_out=5606(+604)
+[2026/10/19 23:58:59] INFO - [crystal_memory] PHASE 2 merged WRITE ok (atomic): mem 5842→6632 self 5002→5606
+[2026/10/19 23:59:00] INFO - HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"

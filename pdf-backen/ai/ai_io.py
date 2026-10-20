@@ -25,6 +25,8 @@ from .ai_config import (
     CHAT_MEMORY_LIMIT,
     CRYSTAL_MEMORY_FILE,
     CRYSTAL_SELF_FILE,
+    EMOTION_POOL,
+    EMOTION_POOL_FALLBACK_LABEL,
     EXPLORE_FILE,
     MEMORY_DIR,
     PARAMS_FILE,
@@ -369,44 +371,129 @@ def _save_llm_configs(updates: dict) -> bool:
 # 情绪向量 (emotion_vector) — 缓存 + 读写
 # ═══════════════════════════════════════════════════════════════════════
 #
-# Schema:
+# Schema (version=2, 2026-10-14 词池范式):
 #   {
-#     "valence":  float,   # 情感正负向: [-1.0, 1.0], 正=积极, 负=消极
-#     "arousal":  float,   # 唤醒度:        [-1.0, 1.0], 正=激动, 负=低落
-#     "novelty":  float,   # 新奇度:        [-1.0, 1.0], 正=惊讶/好奇, 负=无聊
-#     "clarity":  float,   # 清晰度:        [-1.0, 1.0], 正=清醒, 负=困惑
-#     "last_update_dt": str,   # "YYYY-MM-DD HH:MM:SS" 北京时间, 衰减计算锚点
-#     "version":  int,        # schema 版本, 未来扩展用
+#     "label":   str,        # 情绪词, 必须 ∈ EMOTION_POOL (13 词), 白名单兜底 → "中性"
+#     "intensity": float,    # 强度 ∈ [0.0, 1.0], 与 label 词对应的"档位"无关, 由 LLM/衰减动态调整
+#     "v":       float,      # 词表查表得到, valence ∈ [-1.0, 1.0] (前端可选用)
+#     "a":       float,      # 词表查表得到, arousal ∈ [-1.0, 1.0] (前端可选用)
+#     "last_update_dt": str, # "YYYY-MM-DD HH:MM:SS" 北京时间, 衰减计算锚点
+#     "version":  int,       # 2
 #   }
 #
-# 默认值: 全 0.0 (中性) + 当前 dt, 表示"刚启动, 还没任何情绪信号"。
+# 状态语义:
+#   · label + intensity 共同描述"当前情绪": label 决定类型, intensity 决定浓淡
+#   · v/a 由 label 查 EMOTION_POOL 得出, 不存储(但为了前端少算一步, _load 后展开)
+#   · label="中性" 且 intensity=0 → 中性状态; 衰减最终落点
+#
+# 与 version=1 的关系:
+#   · 启动时 _load_emotion 检测到 version=1, 走 _migrate_v1_to_v2 把 4 维向量
+#     → (label, intensity): 用 L2 magnitude 当 intensity, 用 4 维 argmax + 象限 + 强度档选最近词
+#   · 升级后 version=2, 旧字段 (valence/arousal/novelty/clarity) 留在 dict 里
+#     不删 (前端兼容期用得上), 但 _save_emotion 只写新结构
+#
+# 默认值: 中性 + 0.0 + (0, 0), 表示"刚启动, 还没任何情绪信号"。
 # 持久化字段: last_update_dt 是显式字符串 (来自 format_dt_second 单源时间),
 # 不再是 ts 整数 — 避免时区歧义, 与前端 dt 字段完全同源。
 
-EMOTION_AXES: tuple[str, ...] = ("valence", "arousal", "novelty", "clarity")
+EMOTION_AXES: tuple[str, ...] = ("label", "intensity")  # 词池范式: 词 + 强度
 EMOTION_DEFAULT: dict = {
-    "valence": 0.0,
-    "arousal": 0.0,
-    "novelty": 0.0,
-    "clarity": 0.0,
+    "label": EMOTION_POOL_FALLBACK_LABEL,
+    "intensity": 0.0,
+    "v": 0.0,    # 中性 (0, 0)
+    "a": 0.0,
     "last_update_dt": "",  # 首次加载时由 _load_emotion 填上当前 dt
-    "version": 1,
+    "version": 2,
 }
 
 _emotion_cache: dict | None = None
 
 
-def _load_emotion() -> dict:
+def _migrate_v1_to_v2(loaded: dict) -> dict:
     """
-    加载情绪向量。懒加载 + 缓存; 磁盘缺失则返回默认向量 (全 0)。
+    把 version=1 的 4 维向量转换成 version=2 的 (label, intensity)。
 
-    异常静默 (退化策略):
-      · 文件不存在 → 默认向量
-      · JSON 解析失败 → 默认向量 + debug 记录
-      · 缺字段 / 字段类型错 → 修补到合法值 (例如 non-float 退 0.0)
+    算法 (与原前端 decodeEmotion 简化对齐, 但不依赖 family 加权 —
+         family 加权在多轴同向时容易误选 confuse family, 直接按 (v, a) 象限更准):
+      1. 读 valence/arousal/novelty/clarity 4 个 float, 缺则 0
+      2. 计算 L2 magnitude = sqrt(v²+a²+n²+c²)
+      3. magnitude < 0.15 → "中性", intensity=0
+      4. 否则按 (sign(v), sign(a)) 选象限:
+           (+V, +A) 兴奋 → (愉悦, 欣喜, 狂喜)
+           (+V, -A) 平和 → (满足, 安心, 沉静)
+           (-V, +A) 紧张 → (烦躁, 焦虑, 愤怒)
+           (-V, -A) 低落 → (惆怅, 落寞, 绝望)
+         (v=0 或 a=0 走 |v|+|a| 主导的那个象限, 退化到 +V +A)
+      5. 按 magnitude 选档:
+           ≤ 0.45  → 轻 (tier=0)
+           ≤ 0.75  → 中 (tier=1)
+           else    → 强 (tier=2)
+      6. intensity 取 magnitude (clamp [0, 1]), 保留原 4 维向量的"细腻度"
+
+    Args:
+        loaded: 磁盘上读到的 emotion_vector dict, 包含 4 维向量字段
 
     Returns:
-        情绪向量 dict 的**副本** (调用方修改不会影响 cache)。前端 GET /ai/emotion
+        新的 (label, intensity, v, a) dict
+    """
+    v = float(loaded.get("valence") or 0.0)
+    a = float(loaded.get("arousal") or 0.0)
+    n = float(loaded.get("novelty") or 0.0)
+    c = float(loaded.get("clarity") or 0.0)
+
+    magnitude = (v * v + a * a + n * n + c * c) ** 0.5
+    if magnitude < 0.15:
+        return {
+            "label": EMOTION_POOL_FALLBACK_LABEL,
+            "intensity": 0.0,
+            "v": 0.0,
+            "a": 0.0,
+        }
+
+    # 象限 (按 v, a 符号)
+    if v >= 0 and a >= 0:
+        quadrant = ("愉悦", "欣喜", "狂喜")     # +V +A 兴奋
+    elif v >= 0 and a < 0:
+        quadrant = ("满足", "安心", "沉静")     # +V -A 平和
+    elif v < 0 and a >= 0:
+        quadrant = ("烦躁", "焦虑", "愤怒")     # -V +A 紧张
+    else:
+        quadrant = ("惆怅", "落寞", "绝望")     # -V -A 低落
+
+    # 强度档位: 1=轻 2=中 3=强
+    if magnitude < 0.45:
+        tier = 0
+    elif magnitude < 0.75:
+        tier = 1
+    else:
+        tier = 2
+
+    label = quadrant[tier]
+    # 强度取 magnitude (而非档位固定值), 保留原 4 维向量的"细腻度"
+    intensity = max(0.0, min(1.0, magnitude))
+
+    pool = EMOTION_POOL.get(label, {"v": 0.0, "a": 0.0, "intensity": 0.0})
+    return {
+        "label": label,
+        "intensity": intensity,
+        "v": pool["v"],
+        "a": pool["a"],
+    }
+
+
+def _load_emotion() -> dict:
+    """
+    加载情绪状态。懒加载 + 缓存; 磁盘缺失则返回默认 (中性)。
+
+    异常静默 (退化策略):
+      · 文件不存在 → 默认
+      · JSON 解析失败 → 默认 + debug 记录
+      · 缺字段 / 字段类型错 → 修补到合法值
+      · version=1 老数据 → 走 _migrate_v1_to_v2 升级到 version=2
+      · label 不在 EMOTION_POOL 白名单 → 强制 "中性"
+
+    Returns:
+        情绪 dict 的**副本** (调用方修改不会影响 cache)。前端 GET /ai/emotion
         拿到副本直接 jsonify 即可, 不需要再 copy。
     """
     global _emotion_cache
@@ -424,21 +511,41 @@ def _load_emotion() -> dict:
             debug(f"[emotion] load failed, reset to default: {e}")
             loaded = {}
 
-        # 修补: 每个轴必须是 float, 缺/类型错 → 默认 0.0
-        out = dict(EMOTION_DEFAULT)
-        for axis in EMOTION_AXES:
-            v = loaded.get(axis, 0.0)
-            if isinstance(v, (int, float)) and not isinstance(v, bool):
-                # clamp 到 [-1.0, 1.0], 避免脏数据 (例如 LLM 偶尔输出 1.5)
-                out[axis] = max(-1.0, min(1.0, float(v)))
+        # 检测 version: 1 = 老 4 维向量, 2 = 词池范式
+        version = loaded.get("version", 1)
+        if version == 1:
+            # 老数据迁移
+            migrated = _migrate_v1_to_v2(loaded)
+            out = dict(EMOTION_DEFAULT)
+            out["label"] = migrated["label"]
+            out["intensity"] = migrated["intensity"]
+            out["v"] = migrated["v"]
+            out["a"] = migrated["a"]
+            debug(f"[emotion] migrated v1→v2: {loaded} → {out}")
+        else:
+            # v2: 读 label + intensity, 白名单兜底
+            out = dict(EMOTION_DEFAULT)
+            label = loaded.get("label")
+            if not isinstance(label, str) or label not in EMOTION_POOL:
+                label = EMOTION_POOL_FALLBACK_LABEL
+            out["label"] = label
+            # 强度 clamp [0, 1]
+            intensity = loaded.get("intensity", 0.0)
+            if isinstance(intensity, (int, float)) and not isinstance(intensity, bool):
+                out["intensity"] = max(0.0, min(1.0, float(intensity)))
             else:
-                out[axis] = 0.0
+                out["intensity"] = 0.0
+            # v/a 查表 (磁盘可能已存, 但以词表为准重新算, 避免脏数据)
+            pool = EMOTION_POOL[label]
+            out["v"] = pool["v"]
+            out["a"] = pool["a"]
+
         # dt 缺则填当前 dt (避免衰减时 dt 为空)
         if not isinstance(loaded.get("last_update_dt"), str) or not loaded["last_update_dt"]:
             out["last_update_dt"] = format_dt_second(now_ms())
         else:
             out["last_update_dt"] = loaded["last_update_dt"]
-        out["version"] = 1
+        out["version"] = 2
         _emotion_cache = out
         debug(f"[emotion] loaded: {out}")
     # 返回副本, 防止外部就地改坏 cache
@@ -447,13 +554,13 @@ def _load_emotion() -> dict:
 
 def _save_emotion(emotion: dict) -> None:
     """
-    把情绪向量写回 params.json (走 _save_params 的"读-改-写",
+    把情绪状态写回 params.json (走 _save_params 的"读-改-写",
     保留 ask_count_by_fp 等其他字段)。
 
     Args:
-        emotion: 完整情绪向量 dict, 应至少含 EMOTION_AXES + last_update_dt + version。
-                 不做字段级修补 —— 调用方 (apply_decay / apply_emotion_delta)
-                 负责构造合法值。
+        emotion: 完整情绪 dict, 应至少含 label/intensity/last_update_dt/version。
+                 不做字段级修补 —— 调用方 (apply_decay / apply_emotion_update)
+                 负责构造合法值。v/a 不需要传 (load 时查表)。
 
     Returns:
         bool — _save_params 透传 True/False, 暂时丢弃。

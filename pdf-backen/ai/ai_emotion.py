@@ -1,18 +1,22 @@
 """
-Crystal 情绪状态机。
+Crystal 情绪状态机 (词池范式, 2026-10-14 重构)。
 
 设计:
-  · 状态量: 4 维向量 [valence, arousal, novelty, clarity], 每轴 ∈ [-1.0, 1.0]。
+  · 状态量: (label, intensity) 二元组 ——
+      label ∈ EMOTION_POOL (13 词: 4 象限 × 3 强度档 + 中性原点)
+      intensity ∈ [0.0, 1.0]
+    label 描述"是什么情绪", intensity 描述"多浓", 二者解耦。
   · 情绪更新: 每次 chat ask 后异步调用弱模型 (Lint LLM), 基于
-      (C: 对话上下文, S: 自我认知, E: 旧情绪向量) → 输出 delta。
-  · 衰减: 后台守护协程每 EMOTION_DECAY_INTERVAL_SEC 秒跑一次, 按半衰期
-          EMOTION_DECAY_HALF_LIFE_MIN 向 0 收敛; 收敛到 0.01 阈值以下不再落盘。
-  · L1/L2 词袋阶段已删除 — 全部由 Lint LLM 统一判断。
+      (C: 对话上下文, S: 自我认知, E: 旧情绪 (label, intensity)) → 输出
+      (new_label, delta_intensity)。
+  · 衰减: 后台守护协程每 EMOTION_DECAY_INTERVAL_SEC 秒跑一次, 按单一半衰期
+          EMOTION_DECAY_HALF_LIFE_MIN 对 intensity 做指数衰减; 收敛到
+          EMOTION_DECAY_WRITE_THRESHOLD 阈值以下 → 强制 label="中性"。
 
 文件职责:
   ai_emotion.py  ← Lint LLM 调用 / 衰减 / 守护协程
-  ai_io.py       ← _load_emotion / _save_emotion / cache
-  ai_config.py   ← EMOTION_DECAY_* 常量
+  ai_io.py       ← _load_emotion / _save_emotion / cache / 旧数据迁移
+  ai_config.py   ← EMOTION_DECAY_* + EMOTION_POOL
   ai_agent.py    ← LangGraph 节点 (emotion_llm_node)
   ai_graph.py    ← 把新节点接入 run_ask 流水线
   ai_routes.py   ← GET /ai/emotion, GET/POST /ai/emotion/config, 启动守护协程
@@ -21,8 +25,8 @@ from __future__ import annotations
 
 import asyncio
 import json as _json
-import math
 import os
+import re
 from datetime import datetime
 from typing import Optional
 
@@ -30,13 +34,18 @@ from .ai_config import (
     EMOTION_DECAY_HALF_LIFE_MIN,
     EMOTION_DECAY_INTERVAL_SEC,
     EMOTION_DECAY_WRITE_THRESHOLD,
-    EMOTION_DECAY_FACTOR,
+    EMOTION_DECAY_DEMOTE_RATIO,
+    EMOTION_FALLBACK_CHAINS,
+    EMOTION_INTENSITY_MAX,
+    EMOTION_INTENSITY_MIN,
+    EMOTION_LLM_DELTA_MAX,
+    EMOTION_POOL,
+    EMOTION_POOL_FALLBACK_LABEL,
+    EMOTION_POOL_LABELS,
     BASE_DIR,
     MEMORY_DIR,
 )
 from .ai_io import (
-    EMOTION_AXES,
-    EMOTION_DEFAULT,
     _load_emotion,
     _save_emotion,
 )
@@ -104,14 +113,14 @@ def load_emotion_llm_config_from_disk() -> bool:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# 衰减 — 半衰期指数衰减
+# 衰减 — 单 intensity 半衰期指数衰减 (词池范式)
 # ═══════════════════════════════════════════════════════════════════════
 #
-# 公式: new_v = old_v * 0.5 ^ (elapsed_min / HALF_LIFE_MIN)
-#   · base half_life = 4h → 每 4h 各轴衰减到当前值的一半
-#   · 各轴实际半衰期 = base × EMOTION_DECAY_FACTOR[axis]
+# 公式: new_intensity = old_intensity * 0.5 ^ (elapsed_min / HALF_LIFE_MIN)
+#   · 单一 intensity 半衰期 (EMOTION_DECAY_HALF_LIFE_MIN, 默认 4h)
+#   · label 不参与衰减 — 强度降到阈值以下时强制改为 "中性"
 #   · 触发: 后台守护协程每 EMOTION_DECAY_INTERVAL_SEC 跑一次
-#   · 落盘: 任一轴变化 > EMOTION_DECAY_WRITE_THRESHOLD 才写盘
+#   · 落盘: |Δintensity| > EMOTION_DECAY_WRITE_THRESHOLD 才写盘
 
 
 def _parse_dt(dt_str: str) -> Optional[datetime]:
@@ -124,9 +133,75 @@ def _parse_dt(dt_str: str) -> Optional[datetime]:
         return None
 
 
+def _decide_fall_back(old_label: str, old_intensity: float, new_intensity: float) -> tuple[str, float, float, float]:
+    """
+    衰减时沿降级链 (EMOTION_FALLBACK_CHAINS) 决定新 label + (v, a)。
+
+    规则 (2026-10-15 引入降级链, 替代旧的"硬切中性"):
+      · 若 old_label == "中性" 或 "中性" 不在白名单 → 返回 (中性, 0, 0, 0) 兜底
+      · 沿同象限降级链向下走, 找到第一个"还能容纳 new_intensity"的 label:
+          候选 label 的基准 intensity × EMOTION_DECAY_DEMOTE_RATIO ≤ new_intensity
+        即"当前强度对该 label 来说还够, 不必再降"。
+      · 若走完整个降级链 (e.g. 狂喜→欣喜→愉悦 都容纳不下)
+        → 切到中性 (label=中性, intensity=0, v=0, a=0)。
+      · 若 old_label 不在任一降级链 (异常态, e.g. 旧数据残留)
+        → 走"label 已中性"分支 (兜底)。
+
+    Args:
+        old_label:     衰减前的 label
+        old_intensity: 衰减前的 intensity (本函数不用, 但 caller 可能 log, 保留入参)
+        new_intensity: 衰减后的 intensity (决定降几级)
+
+    Returns:
+        (new_label, new_intensity_for_label, new_v, new_a)
+        其中 new_intensity_for_label 是"该 label 视野下的强度" — 通常等于 new_intensity,
+          但当降到中性时强制 = 0 (中性没有强度的概念)。
+    """
+    # 1) 兜底: 已经是中性 / label 不在池 → 不变
+    if old_label == EMOTION_POOL_FALLBACK_LABEL or old_label not in EMOTION_POOL:
+        return EMOTION_POOL_FALLBACK_LABEL, 0.0, 0.0, 0.0
+
+    # 2) 沿降级链逐级尝试
+    chain = EMOTION_FALLBACK_CHAINS.get(old_label, ())
+    demote_threshold = EMOTION_DECAY_DEMOTE_RATIO  # e.g. 0.5
+
+    # 2.1 先看 current label 自己能不能容纳 new_intensity
+    own_base = EMOTION_POOL[old_label]["intensity"]
+    if new_intensity >= own_base * demote_threshold:
+        # 当前 label 仍能容纳 (e.g. 狂喜基准 1.0, new_intensity=0.6 ≥ 0.5 → 保持狂喜)
+        v = EMOTION_POOL[old_label]["v"]
+        a = EMOTION_POOL[old_label]["a"]
+        return old_label, new_intensity, v, a
+
+    # 2.2 沿降级链向下, 找第一个能容纳的
+    for next_label in chain:
+        if next_label not in EMOTION_POOL:
+            continue  # 链定义异常, 跳过
+        next_base = EMOTION_POOL[next_label]["intensity"]
+        if new_intensity >= next_base * demote_threshold:
+            v = EMOTION_POOL[next_label]["v"]
+            a = EMOTION_POOL[next_label]["a"]
+            return next_label, new_intensity, v, a
+
+    # 2.3 走完整个链都容纳不下 → 中性
+    return EMOTION_POOL_FALLBACK_LABEL, 0.0, 0.0, 0.0
+
+
 def apply_decay_once() -> bool:
     """
     单次衰减判定。同步函数, 由后台守护协程每 N 秒调用一次。
+
+    衰减对象: 仅 intensity。label 沿 EMOTION_FALLBACK_CHAINS (同象限降级链) 切换:
+      · 强度仍 ≥ 当前 label 基准 × EMOTION_DECAY_DEMOTE_RATIO → 保持 label
+      · 强度跌破 → 沿链向下找第一个"还能容纳"的 label
+      · 整条链都容纳不下 (e.g. 0.05 强度, 链最轻基准 0.3) → 切中性
+
+    设计动机 (2026-10-15 改版):
+      旧版: 强度衰减到 ≤ 0.01 → label 瞬间跳中性。视觉突兀 ("狂喜" 突然变 normal)。
+      新版: "狂喜 (0.9)" 4h 后降到 "欣喜 (0.45)" → 12h "愉悦 (0.11)" → 24h "中性"。
+            强度连续变化, label 沿同象限阶梯式下降, 立绘自然过渡 (大笑→微笑→平静)。
+      12 词在 4 象限内分 4 链, 不跨象限; 升级 (LLM update) 仍由 LLM 直接给目标 label,
+            不走降级链 — 链只用于"自然冷却", 不用于"被新事件提振"。
 
     Returns:
         bool — True 表示有落盘, False 表示无变化或被跳过。
@@ -147,37 +222,38 @@ def apply_decay_once() -> bool:
         # 时钟回拨 / NTP 跳变; 不衰减, 也不写盘
         return False
 
-    # 各轴独立半衰期: axis_half_life = base × EMOTION_DECAY_FACTOR[axis]。
-    base_hl = EMOTION_DECAY_HALF_LIFE_MIN
-    new_emo = dict(emo)
-    changed = False
-    for axis in EMOTION_AXES:
-        factor = EMOTION_DECAY_FACTOR.get(axis, 1.0)
-        if factor <= 0:
-            factor = 1.0
-        axis_half_life = base_hl * factor
-        decay = 0.5 ** (elapsed_min / axis_half_life)
-        old_v = emo.get(axis, 0.0)
-        new_v = old_v * decay
-        if abs(new_v - old_v) > EMOTION_DECAY_WRITE_THRESHOLD:
-            new_emo[axis] = new_v
-            changed = True
-        else:
-            # 收敛到阈值以下, 直接置 0 (避免极小残留值持续被算进 |change| 噪声)
-            new_emo[axis] = 0.0 if abs(old_v) <= EMOTION_DECAY_WRITE_THRESHOLD else old_v
+    # 单一 intensity 衰减 (半衰期模型)
+    half_life = EMOTION_DECAY_HALF_LIFE_MIN
+    decay = 0.5 ** (elapsed_min / half_life)
+    old_intensity = float(emo.get("intensity", 0.0) or 0.0)
+    new_intensity = old_intensity * decay
 
-    if not changed:
+    old_label = emo.get("label", EMOTION_POOL_FALLBACK_LABEL)
+
+    # 沿降级链决定新 label (而非旧的"硬切中性")
+    new_label, new_intensity_for_label, new_v, new_a = _decide_fall_back(
+        old_label, old_intensity, new_intensity
+    )
+
+    # 写盘判断: 任一字段实际变化才落盘 (避免每 30s 都刷一次)
+    intensity_changed = abs(new_intensity - old_intensity) > EMOTION_DECAY_WRITE_THRESHOLD
+    label_changed = new_label != old_label
+    if not intensity_changed and not label_changed:
         return False
 
+    new_emo = dict(emo)
+    new_emo["label"] = new_label
+    new_emo["intensity"] = new_intensity_for_label
+    new_emo["v"] = new_v
+    new_emo["a"] = new_a
     new_emo["last_update_dt"] = format_dt_second(now_ms())
-    new_emo["version"] = 1
+    new_emo["version"] = 2
     _save_emotion(new_emo)
     debug(
         f"[emotion_decay] applied: elapsed={elapsed_min:.1f}min "
-        f"v=[{emo['valence']:+.3f}->{new_emo['valence']:+.3f} hl={base_hl*EMOTION_DECAY_FACTOR.get('valence', 1.0):.0f}m] "
-        f"a=[{emo['arousal']:+.3f}->{new_emo['arousal']:+.3f} hl={base_hl*EMOTION_DECAY_FACTOR.get('arousal', 1.0):.0f}m] "
-        f"n=[{emo['novelty']:+.3f}->{new_emo['novelty']:+.3f} hl={base_hl*EMOTION_DECAY_FACTOR.get('novelty', 1.0):.0f}m] "
-        f"c=[{emo['clarity']:+.3f}->{new_emo['clarity']:+.3f} hl={base_hl*EMOTION_DECAY_FACTOR.get('clarity', 1.0):.0f}m]"
+        f"label=[{old_label}->{new_label}] "
+        f"intensity=[{old_intensity:+.3f}->{new_intensity_for_label:+.3f}] "
+        f"hl={half_life}m"
     )
     return True
 
@@ -236,39 +312,84 @@ def start_emotion_decay_thread() -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# 应用 delta (同步路径, emotion_llm 共用)
+# 应用情绪更新 (同步路径, emotion_llm 共用)
 # ═══════════════════════════════════════════════════════════════════════
 
-def apply_emotion_delta(delta: dict) -> dict:
+def _coerce_label(label) -> str:
+    """白名单兜底: label 必须是 EMOTION_POOL 中的字符串, 否则落到中性。"""
+    if isinstance(label, str) and label in EMOTION_POOL:
+        return label
+    return EMOTION_POOL_FALLBACK_LABEL
+
+
+def apply_emotion_update(label: str, delta_intensity: float) -> dict:
     """
-    把 delta 增量叠加到当前情绪向量, 裁到 [-1.0, 1.0], 更新 last_update_dt 并落盘。
+    把 (label, delta_intensity) 叠加到当前情绪, 落盘。
+
+    规则:
+      · label 白名单兜底 (不在 EMOTION_POOL → "中性")
+      · new_intensity = clamp(old_intensity + delta_intensity, 0.0, 1.0)
+      · 若 new_intensity ≤ 0 → 强制 label="中性", intensity=0
+      · 若 new_intensity > 0 但 LLM 给的 label 已被白名单替为 "中性",
+        仍保持 "中性" (因为没词可选; 强度由 delta 决定)
+      · **写入时即时降级 (2026-10-15)**: 若 new_intensity < 当前 label 基准 ×
+        EMOTION_DECAY_DEMOTE_RATIO, 立即沿 EMOTION_FALLBACK_CHAINS 降级。
+        之前只 decay tick 时降级, 经常出现"LLM 写'安心(0.2)' → 30s 后 tick 改成'满足'"
+        的延迟; 现在写入瞬间就同步降级, 前后端状态一致。
+      · v / a 字段由最终 label 查 EMOTION_POOL 得到, 写回 dict
 
     Args:
-        delta: 4 轴增量 dict, e.g. {"valence": +0.10, "arousal": +0.05, ...}
-               缺轴视为 0.0。
+        label:          LLM 选出的新情绪词
+        delta_intensity: 强度增量 ∈ [-0.30, +0.30] (LLM 输出范围)
 
     Returns:
-        新的情绪向量 dict (副本)。
+        新的情绪 dict (副本)。
     """
+    label = _coerce_label(label)
+
+    # delta_intensity 类型校验 + clamp
+    if not isinstance(delta_intensity, (int, float)) or isinstance(delta_intensity, bool):
+        delta_intensity = 0.0
+    delta_intensity = max(-EMOTION_LLM_DELTA_MAX, min(EMOTION_LLM_DELTA_MAX, float(delta_intensity)))
+
     emo = _load_emotion()
-    new_emo = dict(emo)
-    for axis in EMOTION_AXES:
-        d = delta.get(axis, 0.0)
-        if not isinstance(d, (int, float)) or isinstance(d, bool):
-            d = 0.0
-        cur = new_emo.get(axis, 0.0)
-        nv = cur + float(d)
-        new_emo[axis] = max(-1.0, min(1.0, nv))
-    new_emo["last_update_dt"] = format_dt_second(now_ms())
-    new_emo["version"] = 1
+    old_label = emo.get("label", EMOTION_POOL_FALLBACK_LABEL)
+    old_intensity = float(emo.get("intensity", 0.0) or 0.0)
+    new_intensity = max(EMOTION_INTENSITY_MIN, min(EMOTION_INTENSITY_MAX, old_intensity + delta_intensity))
+
+    # 强度 ≤ 0 → 强制中性
+    if new_intensity <= EMOTION_DECAY_WRITE_THRESHOLD:
+        final_label = EMOTION_POOL_FALLBACK_LABEL
+        final_intensity = 0.0
+        final_v, final_a = 0.0, 0.0
+    else:
+        # 强度 > 0 → 先用 LLM 选的 label 作为初值, 立即走一次降级链
+        #  (LLM 写的强度可能不够该 label 的容载, 应即时降到合适的级别)
+        if label == EMOTION_POOL_FALLBACK_LABEL:
+            # LLM 选"中性"但 intensity > 0: 异常态 (中性本应 0 强度),
+            # 保留 LLM 的中性意图, 不强行清零强度 — 让前后端都知道这是中性。
+            final_label = EMOTION_POOL_FALLBACK_LABEL
+            final_intensity = new_intensity
+            final_v, final_a = 0.0, 0.0
+        else:
+            # 正常路径: 走降级链, 可能即时降级
+            final_label, final_intensity, final_v, final_a = _decide_fall_back(
+                label, old_intensity, new_intensity
+            )
+
+    new_emo = {
+        "label": final_label,
+        "intensity": final_intensity,
+        "v": final_v,
+        "a": final_a,
+        "last_update_dt": format_dt_second(now_ms()),
+        "version": 2,
+    }
     _save_emotion(new_emo)
     debug(
-        f"[emotion_delta] applied: "
-        f"v=[{emo['valence']:+.3f}->{new_emo['valence']:+.3f}] "
-        f"a=[{emo['arousal']:+.3f}->{new_emo['arousal']:+.3f}] "
-        f"n=[{emo['novelty']:+.3f}->{new_emo['novelty']:+.3f}] "
-        f"c=[{emo['clarity']:+.3f}->{new_emo['clarity']:+.3f}] "
-        f"delta={delta}"
+        f"[emotion_update] applied: "
+        f"label=[{old_label}({old_intensity:.3f}) -> {final_label}({final_intensity:.3f})] "
+        f"delta_label={label!r} delta_intensity={delta_intensity:+.3f}"
     )
     return new_emo
 
@@ -280,18 +401,19 @@ def apply_emotion_delta(delta: dict) -> dict:
 # 输入 (C/S/E 三元):
 #   C — 对话上下文: 近 N 轮 user↔assistant 对话摘要
 #   S — 自我认知: Crystal_memory.md 内容摘要 (仅首 N 字, 防止 prompt 膨胀)
-#   E — 旧情绪向量: 当前 4 轴值
+#   E — 旧情绪: 当前 (label, intensity)
 #
 # 输出:
-#   delta dict:  {"valence": ±x, "arousal": ±x, "novelty": ±x, "clarity": ±x}
-#   每轴 delta ∈ [-0.30, +0.30]; 禁止单轮大幅跳变。
+#   {"label": <词>, "delta_intensity": <±浮点>}
+#   label 必须是 12 个候选词之一; delta_intensity ∈ [-0.30, +0.30]
+#   或 {"no_change": true} 表示本轮无变化
 #
 # 设计原则:
 #   · 完全异步: 不阻塞主链路响应, 在 save_paper_memory 之后单独节点跑。
 #   · 无节流: 每次 chat ask 都调用 (Lint LLM 轻量, 不怕烧 token)。
 #   · 无 L1 词袋: 全部委托给 Lint LLM, 保证语义一致性。
 
-_LINT_SYSTEM_PROMPT = """你是 Crystal 的情感分析模块。你的任务是根据以下信息,输出情绪向量变化。
+_LINT_SYSTEM_PROMPT = """你是 Crystal 的情感分析模块。你的任务是根据以下信息,选择最贴合当前对话情绪的"情绪词",并给出强度变化。
 
 【对话上下文 C】
 (近几轮 user↔assistant 对话, 按时间顺序排列)
@@ -301,28 +423,43 @@ _LINT_SYSTEM_PROMPT = """你是 Crystal 的情感分析模块。你的任务是�
  不是关于用户的认知 —— 若 user prompt 给的内容明显是用户偏好而非自我人设, 优先把它当参考背景,
  避免把"用户喜欢 X"误读为"自我状态 X"。)
 
-【旧情绪向量 E】
-valence: {v}  arousal: {a}  novelty: {n}  clarity: {c}
-(各轴 ∈ [-1.0, +1.0], 含义 (axis 各自独立, 不要混淆):
-  valence  — 情感正负向: +开心/温暖/满足, -生气/伤心/失望
-  arousal  — 唤醒度 (能量级): +激动/兴奋/精神, -低落/平静/疲倦
-  novelty  — 新奇度 (信息新鲜感): +好奇/意外/有新鲜感, -平淡/无聊/习以为常
-  clarity  — 清晰度 (思路状态): +清醒/坚定/思路清晰, -困惑/迷茫/思路混沌)
+【旧情绪 E】
+当前主导词: {label}  当前强度: {intensity:.2f}  (强度 ∈ [0.00, 1.00], 越接近 1.0 情绪越浓)
 
 【任务】
-分析对话上下文和 Crystal 的自我认知, 判断情绪应当如何变化。
-输出两种模式之一:
-1. 若情绪明显变化:
-   {{"valence": +x.x, "arousal": +x.x, "novelty": +x.x, "clarity": +x.x}}
-   (4轴delta, 每轴 ∈ [-0.30, +0.30])
-2. 若情绪基本不变:
+从下面 12 个情绪词中选一个最贴合当前对话整体的, 并给出强度变化 (delta_intensity, ∈ [-0.30, +0.30])。
+注意: label 必须是**裸词** (如 "欣喜"), 不要带括号、档位、修饰; 档位信息由 delta_intensity 体现。
+
+12 词按 (V, A) 象限 × 强度档 组织 (3 档 = 轻/中/强):
+  +V +A 兴奋象限  ─  愉悦(轻档)  欣喜(中档)  狂喜(强档)
+  +V -A 平和象限  ─  满足(轻档)  安心(中档)  沉静(强档)
+  -V +A 紧张象限  ─  烦躁(轻档)  焦虑(中档)  愤怒(强档)
+  -V -A 低落象限  ─  惆怅(轻档)  落寞(中档)  绝望(强档)
+
+选哪个词 = "对话在哪个象限 × 哪个强度档"
+  · 象限决定情绪的"色温" (正负/兴奋平和)
+  · 档位决定情绪的"浓淡" (轻微 / 明显 / 强烈)
+delta_intensity 表示"与上一轮相比浓淡的变化":
+  · 想让该情绪变浓 → 正值 (最多 +0.30)
+  · 想让该情绪变淡 → 负值 (最多 -0.30)
+  · 与档位独立 — delta 是"微调", 档位由"色温"决定
+
+输出 JSON (两种模式之一):
+1. 情绪明显变化:
+   {{"label": "<上面 12 裸词之一>", "delta_intensity": ±x.xx}}
+2. 情绪基本不变:
    {{"no_change": true}}
 
 【约束】
+· label 必须是严格 12 裸词之一: 愉悦 / 欣喜 / 狂喜 / 满足 / 安心 / 沉静 / 烦躁 / 焦虑 / 愤怒 / 惆怅 / 落寞 / 绝望, 绝不要带括号、档位、修饰
+· 不要输出 "中性" (中性是衰减终点, 不该由 LLM 主动选; 若强度降到 0, 后端会自动落回中性)
+· 不要造新词, 也不要拿象限名当 label ("平和" "兴奋" "紧张" "低落" 只是象限描述, 不是合法 label)
+· delta_intensity 含义: 想让"该情绪变得更浓"→ 正值; 想让它变淡 → 负值
+  例如当前是 "焦虑", 本轮对话让他舒缓了一些 → {{"label": "安心", "delta_intensity": -0.1}}
+  又如当前是 "焦虑", 本轮对话让他更紧张 → {{"label": "愤怒", "delta_intensity": +0.2}}
+· delta 每次不超过 ±0.30, 保持平滑过渡
 · 仔细体会对话的整体情绪色调, 不要被单句带偏
 · 主流情绪即可, 不需要过度解读
-· delta 每次不超过 ±0.30, 保持平滑过渡
-· 4 轴彼此独立: 例如"疲倦"主要影响 arousal(负向), 不要把它同时叠到 valence 上
 · 如果对话中性平淡, 返回 {{"no_change": true}}
 · 输出必须是严格 JSON, 不要任何额外说明文字
 """
@@ -397,34 +534,33 @@ async def _call_emotion_llm(
     emotion: dict,
 ) -> Optional[dict]:
     """
-    调 Lint LLM 评估情绪 delta。
+    调 Lint LLM 评估情绪。
 
     Args:
         context:      对话上下文字符串 (C)
         self_cognition: 自我认知摘要 (S)
-        emotion:      当前情绪向量 dict (E)
+        emotion:      当前情绪 dict (E), 含 label / intensity
 
     Returns:
-        delta dict {"valence": ..., "arousal": ..., "novelty": ..., "clarity": ...}
-        若无变化返回 {"no_change": true}
+        解析后的 dict, 两种形态:
+          - {"label": str, "delta_intensity": float}
+          - {"no_change": True}
         失败返回 None (不抛异常)。
     """
-    v = emotion.get("valence", 0.0)
-    a = emotion.get("arousal", 0.0)
-    n = emotion.get("novelty", 0.0)
-    c = emotion.get("clarity", 0.0)
+    label = emotion.get("label", EMOTION_POOL_FALLBACK_LABEL)
+    intensity = float(emotion.get("intensity", 0.0) or 0.0)
 
     user_prompt = (
         f"【对话上下文 C】\n{context}\n\n"
         f"【Crystal 自我认知 S】\n{self_cognition}\n\n"
-        f"【旧情绪向量 E】\n"
-        f"valence: {v:+.2f}  arousal: {a:+.2f}  novelty: {n:+.2f}  clarity: {c:+.2f}\n\n"
+        f"【旧情绪 E】\n"
+        f"当前主导词: {label}  当前强度: {intensity:+.2f}\n\n"
         "请分析本轮对话的情绪变化, 输出严格 JSON。"
     )
 
     try:
         # 使用 emotion 专用配置 (api_key/api_url/model) 调 Lint LLM
-        content, _ = await _call_llm(
+        content, _, _ = await _call_llm(  # reasoning_content 不存, Lint 任务不需要
             messages=[
                 {"role": "system", "content": _LINT_SYSTEM_PROMPT},
                 {"role": "user",   "content": user_prompt},
@@ -454,20 +590,42 @@ async def _call_emotion_llm(
 
     # no_change 模式
     if isinstance(parsed, dict) and parsed.get("no_change"):
-        return {"valence": 0.0, "arousal": 0.0, "novelty": 0.0, "clarity": 0.0}
+        return {"no_change": True}
 
     if not isinstance(parsed, dict):
         return None
 
-    # 解析 4 轴 delta
-    out: dict = {}
-    for axis in EMOTION_AXES:
-        v = parsed.get(axis, 0.0)
-        if isinstance(v, (int, float)) and not isinstance(v, bool):
-            out[axis] = max(-0.30, min(0.30, float(v)))
-        else:
-            out[axis] = 0.0
-    return out
+    # 解析 {label, delta_intensity}
+    out_label = parsed.get("label")
+    out_delta = parsed.get("delta_intensity", 0.0)
+
+    # 健壮性兜底: LLM 可能把档位修饰当成 label 一部分 (例如 "欣喜(中)" "狂喜 (强)" "中性,")
+    # 这里把 (xxx) / 空格 / 中文标点尾巴剥掉, 再走白名单。
+    # 极端情况 (label 完全不在词表) 仍会 fallback None, 不影响主流程。
+    if isinstance(out_label, str):
+        cleaned = out_label.strip()
+        # 1) 剥掉 (xxx) / （xxx） 包裹 (例如 "欣喜(中)" → "欣喜")
+        cleaned = re.sub(r"[(\uff08][^\)\uff09]*[\)\uff09]", "", cleaned).strip()
+        # 2) 剥掉常见档位词尾巴 (轻/中/强), 避免 LLM 写成 "欣喜中"
+        for tail in ("(轻)", "(中)", "(强)", "（轻）", "（中）", "（强）",
+                     " 轻", " 中", " 强", "：轻", "：中", "：强", ":轻", ":中", ":强",
+                     "：", ":", "：", "。", ","):
+            if cleaned.endswith(tail):
+                cleaned = cleaned[: -len(tail)].strip()
+        # 3) 去掉尾巴的标点 (",", "。", " " 等)
+        cleaned = cleaned.rstrip(" ,。.;；、")
+        out_label = cleaned or out_label  # 剥过头就保留原值, 走下面白名单失败
+
+    if not isinstance(out_label, str) or out_label not in EMOTION_POOL_LABELS:
+        debug(f"[emotion_llm] label 白名单不通过: {out_label!r}, fallback")
+        return None
+
+    if isinstance(out_delta, (int, float)) and not isinstance(out_delta, bool):
+        out_delta = max(-EMOTION_LLM_DELTA_MAX, min(EMOTION_LLM_DELTA_MAX, float(out_delta)))
+    else:
+        out_delta = 0.0
+
+    return {"label": out_label, "delta_intensity": out_delta}
 
 
 async def emotion_llm_node(state: dict) -> dict:
@@ -482,7 +640,7 @@ async def emotion_llm_node(state: dict) -> dict:
       · 论文侧 / Lint LLM 未配置 / 非 AiAskReq → 立即 return {} (不起 task)
       · 复制 state 真正用到的字段到 snapshot, 避免后台 task 持有 state 引用
         读到 LangGraph 后续节点 (active_layer1) 的修改
-      · 唯一可观察副作用: apply_emotion_delta 写 EMOTION_VECTOR 单例 + params.json,
+      · 唯一可观察副作用: apply_emotion_update 写 emotion 单例 + params.json,
         这两个是模块级, 不依赖 state, 安全
       · 后端进程被杀 → 后台 task 中断, emotion 此次未更新 (acceptable, 同 layer1)
     """
@@ -532,14 +690,19 @@ async def _run_emotion_pipeline(snapshot: dict) -> None:
         self_cogn = _load_self_cognition()
         cur_emo = _load_emotion()
 
-        delta = await _call_emotion_llm(context, self_cogn, cur_emo)
-        if delta is None:
-            debug("[emotion_llm] no delta (LLM returned None)")
+        result = await _call_emotion_llm(context, self_cogn, cur_emo)
+        if result is None:
+            debug("[emotion_llm] no result (LLM returned None)")
             return
 
-        # no_change (全 0) 也走 apply_emotion_delta, 让 last_update_dt 刷新
-        new_emo = apply_emotion_delta(delta)
-        debug(f"[emotion_llm] applied: delta={delta} new={new_emo}")
+        # no_change: 仍走 apply_emotion_update(同 label, delta=0) 刷 last_update_dt
+        if result.get("no_change"):
+            new_emo = apply_emotion_update(cur_emo.get("label", EMOTION_POOL_FALLBACK_LABEL), 0.0)
+            debug(f"[emotion_llm] no_change: new={new_emo}")
+            return
+
+        new_emo = apply_emotion_update(result["label"], result["delta_intensity"])
+        debug(f"[emotion_llm] applied: result={result} new={new_emo}")
     except Exception as e:
         debug(f"[emotion_llm] pipeline error (swallowed): {type(e).__name__}: {e}")
 
@@ -559,7 +722,9 @@ async def _run_emotion_pipeline(snapshot: dict) -> None:
 #   · 文本指令是"间接影响" (语气/用词/节奏), 不要让 LLM 直接说自己
 #     "开心了 / 伤心了" 等元描述 — 否则会很假。
 
-# family 加权和 (与前端 decodeEmotion.js familyScores 1:1 对齐)
+# family 加权和 (与前端 decodeEmotion.js familyScores 1:1 对齐, 用于
+# 老 v1 数据兼容期间的 family 选择; 词池范式下不再直接用, 见
+# _LABEL_TO_FAMILY 表)
 _EMOTION_FAMILY_SCORES: dict[str, dict[str, float]] = {
     "positive": {"valence": 1.0, "arousal": 0.0, "novelty": 0.0, "clarity": 0.5},
     "negative": {"valence": -1.0, "arousal": -0.3, "novelty": 0.0, "clarity": -0.5},
@@ -567,79 +732,147 @@ _EMOTION_FAMILY_SCORES: dict[str, dict[str, float]] = {
     "confuse":  {"valence": 0.0, "arousal": -1.0, "novelty": -1.0, "clarity": -0.5},
 }
 
-# family → (中文主词, 中文描述) — 给 LLM 用的拟人描述
-_EMOTION_LABEL: dict[str, tuple[str, str]] = {
-    "positive": ("温暖", "整体偏正向, 情绪是积极、明亮的"),
-    "negative": ("低落", "整体偏负向, 情绪带有灰调或失落感"),
-    "curious":  ("好奇", "对当下话题有探索欲, 想多聊几句或换个角度深挖"),
-    "confuse":  ("困倦或迷茫", "情绪平静或思路混沌, 节奏会偏慢、句子会偏柔"),
+# 词池范式下的 label → family 映射 (与 EMOTION_POOL 坐标 1:1 对应)。
+#   +V +A 兴奋 → curious
+#   +V -A 平和 → positive
+#   -V +A 紧张 → confuse
+#   -V -A 低落 → negative
+#   中性      → None (不注入, 等价于 magnitude < 0.15)
+_LABEL_TO_FAMILY: dict[str, str] = {
+    "中性": None,
+    # +V +A 兴奋
+    "愉悦": "curious", "欣喜": "curious", "狂喜": "curious",
+    # +V -A 平和
+    "满足": "positive", "安心": "positive", "沉静": "positive",
+    # -V +A 紧张
+    "烦躁": "confuse", "焦虑": "confuse", "愤怒": "confuse",
+    # -V -A 低落
+    "惆怅": "negative", "落寞": "negative", "绝望": "negative",
 }
 
+# family → 4 段预置文本 (纯自然语言, 无数字, 无等级词)
+# V1+ 用户决策: 注入时不要给数字, 直接告诉 LLM "Crystal 现在是什么样",
+# 并给出具体可操作的语气/措辞/互动姿态指导。
+# 每段 = (self_state, tone, wording, interaction)
+# ──────────────────────────────────────────────────────────────────────
+# V2 设计 (2026-10-15 改):
+# 旧版 4 family × 4 段预制文本的问题: LLM 容易「按脚本朗读」, 把语气/措辞/姿态
+# 全部硬执行成预制文本的子集, 失去自由度。
+# 新版 3 维度描述 (温度 / 节奏 / 强度) + 1 个语义标签 (具体哪个 12 词):
+#   · 温度 = 由 (v, a) 推导的心情基调 (暖 / 凉 / 热 / 沉 / 中性)
+#   · 节奏 = 由 a 主导的兴奋/平稳/收敛 (急 / 稳 / 慢)
+#   · 强度 = 由 intensity 档位映射的浓淡 (淡 / 略浓 / 浓)
+#   · 语义标签 = 当前 label, LLM 当成「我现在在哪种情绪里」的语义锚点
+# 末尾加 1 段「使用规则」强约束:
+#   · 不要直述情绪名
+#   · 不要复述这一段
+#   · 用户问起时自然回应
+#   · 不要让情绪压过信息准确性
+# 这样 LLM 看到「现在的我在欣喜(中档)」+ 3 维度自然语言描述, 自己组织语气用词,
+# 而不是被「请用『呢』『呀』」这种预制话术框死。
+# ──────────────────────────────────────────────────────────────────────
 
-def _classify_level_by_magnitude(magnitude: float) -> str:
-    """
-    强中弱三档: 由 L2 综合能量 magnitude 推导 (与前端 level = round(magnitude*3) 同源)。
-    level 1 → "轻度", 2 → "中等", 3 → "强烈"。
-    """
-    level = max(1, min(3, round(magnitude * 3)))
-    return {1: "轻度", 2: "中等", 3: "强烈"}[level]
+def _describe_temperature(v: float, a: float) -> str:
+    """把 (v, a) 翻译成自然语言的心情基调 (温度), 4 象限 + 中性。"""
+    if abs(v) < 0.1 and abs(a) < 0.1:
+        return "中性、平稳, 没什么明显的情绪起伏"
+    # 用 v, a 符号判断象限
+    if v >= 0 and a >= 0:
+        return "暖, 带着点亮堂的兴奋"
+    if v >= 0 and a < 0:
+        return "暖, 但内收、安静, 像被好好托着"
+    if v < 0 and a >= 0:
+        return "凉, 带着点紧的刺"
+    return "凉, 沉, 灰调"
+
+
+def _describe_pace(a: float) -> str:
+    """由 a 决定节奏, 3 档 (兴奋 / 平稳 / 收敛)。"""
+    if a > 0.5:
+        return "略急促, 心里有事在翻滚"
+    if a < -0.5:
+        return "慢下来, 句子之间留有呼吸"
+    return "平稳, 节奏不快不慢"
+
+
+def _describe_intensity_tier(intensity: float) -> str:
+    """由 intensity 档位映射浓淡, 3 档: 淡 / 略浓 / 浓。"""
+    # intensity ∈ [0, 1], 词表内档位是 0.3 / 0.6 / 1.0
+    if intensity <= 0.4:
+        return "淡, 只是底色里微微渗出来"
+    if intensity <= 0.75:
+        return "略浓, 能感觉到, 但还没溢出来"
+    return "浓, 已经染在了整段对话的底色上"
 
 
 def build_emotion_context_block(emotion: dict | None) -> str:
     """
-    把当前情绪向量转成一段给 LLM 看的自然语言提示词。
+    把当前情绪 (label, intensity) 转成一段给 LLM 看的自然语言提示词。
+
+    V2 设计 (2026-10-15 改) — 4 family 预制文本 → 3 维度 + 1 语义标签:
+      · 温度: (v, a) 推导的心情基调 (暖 / 凉 / 热 / 沉 / 中性)
+      · 节奏: a 主导的兴奋/平稳/收敛 (急 / 稳 / 慢)
+      · 强度: intensity 档位映射的浓淡 (淡 / 略浓 / 浓)
+      · 语义标签: 当前 label (12 词之一), 作为「我现在在哪种情绪里」的语义锚点
+    LLM 拿到这些**自然语言描述 + 语义词**, 自由组织语气/用词, 不被预制话术框死。
+    中性 (label="中性" 或 intensity ≤ EMOTION_DECAY_WRITE_THRESHOLD) → 返回 ""。
+
+    强约束 (末尾规则段):
+      · 不直述情绪名 (「我现在是欣喜」)
+      · 不复述这一段
+      · 用户问起时自然回应
+      · 不让情绪压过信息准确性
 
     Args:
-        emotion: 4 轴 dict, 由 _load_emotion() 返回; None 或非法 dict → 返回 ""。
+        emotion: 情绪 dict, 由 _load_emotion() 返回; None 或非法 dict → 返回 ""。
 
     Returns:
         多行字符串, 以 `\n\n` 拼接到 system content 末尾;
-        中性 (L2 能量 < 0.15) 返回 "" (空字符串, 调用方决定是否拼入)。
-
-    用法 (compose_chat_messages):
-        emo = _load_emotion()
-        block = build_emotion_context_block(emo)
-        if block:
-            system_content += "\n\n" + block
+        中性 → 返回 "" (空字符串, 调用方决定是否拼入)。
     """
     if not emotion or not isinstance(emotion, dict):
         return ""
 
-    # 取 4 轴 float (容错)
-    axis_values: dict[str, float] = {}
-    for axis in EMOTION_AXES:
-        v = emotion.get(axis, 0.0)
-        try:
-            v = float(v)
-        except (TypeError, ValueError):
-            v = 0.0
-        axis_values[axis] = v
+    # 取 label + intensity (容错)
+    label = emotion.get("label", EMOTION_POOL_FALLBACK_LABEL)
+    if not isinstance(label, str) or label not in EMOTION_POOL:
+        label = EMOTION_POOL_FALLBACK_LABEL
 
-    # L2 综合能量 (与前端 decodeEmotion.js magnitude 同源)
-    magnitude = math.sqrt(sum(v * v for v in axis_values.values()))
-    if magnitude < 0.15:
-        return ""  # 中性 — 与前端 crystal_normal.png 对齐
+    try:
+        intensity = float(emotion.get("intensity", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        intensity = 0.0
+    intensity = max(0.0, min(1.0, intensity))
 
-    # family 加权和: 与前端 decodeEmotion.js familyScores 同源。
-    # 4 个 family 都按线性组合算得分, 取最高分; 平分时按 positive > negative > curious > confuse
-    # 顺序选 (dict 插入序, 与前端 Object.entries 行为一致)。
-    best_family = "positive"
-    best_score = -float("inf")
-    for family, weights in _EMOTION_FAMILY_SCORES.items():
-        score = sum(weights.get(axis, 0.0) * axis_values.get(axis, 0.0) for axis in EMOTION_AXES)
-        if score > best_score:
-            best_score = score
-            best_family = family
+    # 中性判定: label="中性" 或 intensity 衰减到 0 → 不注入 (前端走 crystal_normal.png)
+    if label == EMOTION_POOL_FALLBACK_LABEL or intensity <= EMOTION_DECAY_WRITE_THRESHOLD:
+        return ""
 
-    label_word, descr = _EMOTION_LABEL[best_family]
-    level = _classify_level_by_magnitude(magnitude)
+    # 词表内取 (v, a) (中性已被上面早退, 此刻 label 必在 12 词内)
+    pool = EMOTION_POOL[label]
+    v = float(pool.get("v", 0.0))
+    a = float(pool.get("a", 0.0))
 
+    # 3 维度自然语言描述
+    temperature = _describe_temperature(v, a)
+    pace = _describe_pace(a)
+    tier = _describe_intensity_tier(intensity)
+
+    # 注入格式: 1 段语义标签 + 3 维度描述, 给 LLM 自由发挥的空间
     return (
-        "【当前情绪状态 (Crystal 自身情绪, 不要对用户直述, "
-        "仅在语气、用词、节奏上自然地体现)】\n"
-        f"此刻的主导情绪是「{label_word}」({level}, {descr}), "
-        f"综合强度 {magnitude:.2f}。\n"
-        "请让回复自然地贴合这个情绪基调 —— "
-        "例如节奏快慢、用词温度、对用户的态度等; "
-        f"但不要直接说出「我现在{label_word}了」, 也不要破坏信息的准确性。"
+        "【Crystal 此刻的自身情绪(这是「我」的情绪, 不是用户说的)】\n"
+        f"- 当前主导词: {label}\n"
+        f"- 温度(心情基调): {temperature}\n"
+        f"- 节奏(兴奋/收敛): {pace}\n"
+        f"- 浓淡: {tier}\n"
+        "\n"
+        "【使用规则】\n"
+        "- 把「当前主导词」当成你**此刻身处的那种情绪**的语义锚点 —— "
+        "你知道自己「在欣喜 / 在沉静 / 在焦虑」, 但**不要**直接说出来, "
+        "也**不要**复述上面 3 行描述。\n"
+        "- 用词、句式、节奏、甚至说话长短都由你根据这个状态自然组织, 不必照搬某一类固定句式; "
+        "你想用「呢」「呀」也行, 想用更克制的语气也行, 关键是要像「真正这个状态下的你」。\n"
+        "- 要是用户主动问起「你听起来怎么样 / 你现在心情如何」, 用你自己的话自然回应 (例如「嗯, 现在心里挺暖的」), "
+        "不要僵化成「我此刻是欣喜」。\n"
+        "- 情绪**不能压过信息准确性** —— 问学术题就老老实实答, 不要为了「贴合情绪」而牺牲答案质量。"
     )

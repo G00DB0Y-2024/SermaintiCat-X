@@ -1,26 +1,26 @@
 {
   "ask_count_by_fp": {
-    "crystal_chat": 349
+    "crystal_chat": 868
   },
   "emotion_vector": {
-    "valence": 0.747798020814902,
-    "arousal": 0.12441980222889071,
-    "novelty": 0.17062392236877766,
-    "clarity": 1.0,
-    "last_update_dt": "2026-10-10 23:46:39",
-    "version": 1
+    "label": "中性",
+    "intensity": 0.0,
+    "v": 0.0,
+    "a": 0.0,
+    "last_update_dt": "2026-10-20 09:25:11",
+    "version": 2
   },
   "llm_configs": {
     "main": {
-      "api_key": "sk-06afff9739c342d8adf2826bac1ba31d",
+      "api_key": "sk-0c68f107edef430daa30c93d78fb21a7",
       "api_url": "https://api.deepseek.com",
       "model": "deepseek-flash",
       "vision_model": "deepseek-flash",
-      "deepseek_thinking": true
+      "deepseek_thinking": false
     },
     "lint": {
-      "api_key": "sk-8lofrp826JoFBWwFA441CdBf3bB347779c34Cb967b0e84Db",
-      "api_url": "https://aihubmix.com/v1/chat/completions",
+      "api_key": "sk-x6AmZAaYShkBTr3S007d442fC7854511Ac2097CdEc0d68Fb",
+      "api_url": "https://api.inferera.com/v1/chat/completions",
       "model": "gemini-2.5-flash-lite"
     }
   }

@@ -15,6 +15,7 @@ from .ai_agent import (
     load_agent_memory_node,
     load_paper_history_node,
     save_paper_memory_node,
+    thinking_effort_node,
     update_agent_memory_node,
 )
 from .ai_emotion import emotion_llm_node
@@ -35,8 +36,12 @@ def build_graph():
     """
     构建 LangGraph StateGraph:
       load_agent_memory -> load_paper_history -> compose_messages
-      -> llm_call -> split_followup -> save_paper_memory
+      -> thinking_effort -> llm_call -> split_followup -> save_paper_memory
       -> update_agent_memory -> emotion_llm -> active_layer1 -> END
+
+    thinking_effort (2026-10-16 引入):
+      DeepSeek 思考强度判断节点。仅 DeepSeek 模型调 lint LLM (快速, ~50ms);
+      非 DeepSeek 模型直接给默认值 2 (high), 无额外延迟。
 
     emotion_llm: Lint LLM 异步评估情绪, 每次 chat ask 都触发,
     非 chat 场景 (论文) 跳过。与主链路完全并行, 不阻塞响应。
@@ -57,6 +62,7 @@ def build_graph():
     g.add_node("load_agent_memory",    load_agent_memory_node)
     g.add_node("load_paper_history",     load_paper_history_node)
     g.add_node("compose_messages",      compose_messages_node)
+    g.add_node("thinking_effort",        thinking_effort_node)
     g.add_node("llm_call",             llm_call_node)
     g.add_node("split_followup",         split_followup_node)
     g.add_node("save_paper_memory",     save_paper_memory_node)
@@ -67,7 +73,8 @@ def build_graph():
     g.set_entry_point("load_agent_memory")
     g.add_edge("load_agent_memory",    "load_paper_history")
     g.add_edge("load_paper_history",   "compose_messages")
-    g.add_edge("compose_messages",     "llm_call")
+    g.add_edge("compose_messages",     "thinking_effort")
+    g.add_edge("thinking_effort",      "llm_call")
     g.add_edge("llm_call",            "split_followup")
     g.add_edge("split_followup",        "save_paper_memory")
     g.add_edge("save_paper_memory",    "update_agent_memory")
@@ -94,6 +101,7 @@ async def run_ask(req: AiAskReq) -> dict:
         "req_fp": "",
         "res_fp": "",
         "emotion": {},
+        "thinking_effort": 2,
     }
     graph = _get_graph()
     result = await graph.ainvoke(initial)
@@ -116,6 +124,7 @@ async def run_load(req: AiLoadReq) -> dict:
         "req_fp": "",
         "res_fp": "",
         "emotion": {},
+        "thinking_effort": 2,
     }
     graph = _get_graph()
     result = await graph.ainvoke(initial)

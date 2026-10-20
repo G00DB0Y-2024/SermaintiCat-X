@@ -2,9 +2,9 @@
 下层: 基于历史 / quote 的最终 prompt 拼装。
 
 包含:
-- Memory 更新 user prompt: MEMORY_UPDATE_USER_HEADER / buildMemoryUpdateUserPrompt
 - Ask/Load 的 user content 构建: build_ask_user_content / build_load_user_content
 - 上下文组装: compose_paper_ask_messages / compose_chat_messages / build_chat_audit_block
+- 合并 memory + self update: buildMemoryAndSelfUpdateUserPrompt
 
 buildAskMessages / buildLoadMessages 在原 prompts.py 中的版本已废弃,
 由本文件中的 compose_*_messages 接管, 不再保留。
@@ -13,6 +13,11 @@ buildAskMessages / buildLoadMessages 在原 prompts.py 中的版本已废弃,
   - 删除: MEMORY_COMPRESS_USER_HEADER / buildMemoryCompressUserPrompt
   - 删除: SELF_COMPRESS_USER_HEADER / buildSelfCompressUserPrompt
   update prompt 现在直接喂当前 md (不做预压缩)。
+
+【2026-10-11 删除】旧版独立两段 update 的 user prompt 拼装:
+  - 删除: MEMORY_UPDATE_USER_HEADER / buildMemoryUpdateUserPrompt
+  - 删除: SELF_UPDATE_USER_HEADER / buildSelfUpdateUserPrompt
+  update 路径只走 buildMemoryAndSelfUpdateUserPrompt, 失败时不 fallback。
 """
 from __future__ import annotations
 
@@ -28,188 +33,9 @@ from utils.log import debug
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Memory 更新 user prompt
-# ═══════════════════════════════════════════════════════════════════════
-
-def MEMORY_UPDATE_USER_HEADER() -> str:
-    """
-    用于 update_crystal_memory 的 user prompt 静态头部:
-    一次性说清楚时间戳规范 + 输出指令 (避免与 system 重复)。
-    时间戳值 / 当前笔记内容 / 本轮对话等动态内容
-    由 buildMemoryUpdateUserPrompt 在尾部拼接。
-    """
-    return (
-        "请基于提供的「当前 Crystal_memory.md」「本次用户对话」以及作为补充的「当前论文窗口内的轨迹」,\n"
-        "输出压缩并更新后的完整 Crystal_memory.md 文本。\n"
-        "【保真提醒】本次更新与压缩均按「保真优先」原则: "
-        "合并/淘汰时保留用户在研究方向、工具/方法、表达习惯、忌讳点上的具体事实与示例, "
-        "避免把笔记抹平为「用户喜欢 X 方向」这种抽象描述。\n"
-    )
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# Crystal_self (Self-Cognition) 更新 user prompt — 与 memory 平行
-# ═══════════════════════════════════════════════════════════════════════
-
-def SELF_UPDATE_USER_HEADER() -> str:
-    """
-    Crystal_self update phase 的 user prompt 静态头部:
-    一次性说清楚: 这是在当前 self 之上, 融合「刚更新好的 Crystal_memory.md」
-    以及「本轮对话」, 输出新的 Crystal_self.md。
-
-    与 memory update 的关键差异: self 多喂一个「更新好的 memory」块 —
-    让 LLM 知道 "我对用户已经形成了哪些认知", 这会反向影响 Crystal 的自我定位。
-    """
-    return (
-        "请基于提供的「当前 Crystal_self.md」「刚更新好的 Crystal_memory.md」"
-        "「本次用户对话」以及作为补充的「当前论文窗口内的轨迹」,\n"
-        "输出压缩并更新后的完整 Crystal_self.md 文本。\n"
-        "【保真提醒】本次更新与压缩均按「保真优先」原则: "
-        "合并/淘汰时保留 Crystal 的具体表达偏好、具体想学/想尝试的事、具体场景示例, "
-        "避免把自我认知抹平为「性格开朗/喜欢聊天」这种抽象描述。\n"
-    )
-
-
-def buildSelfUpdateUserPrompt(
-    current_self_md: str,
-    updated_memory_md: str,
-    user_msg: str,
-    assistant_msg: str,
-    current_timestamp: str = "",
-    chat_audit: str = "",
-) -> str:
-    """
-    构造 self update phase 的 user prompt:
-      - 静态头部: SELF_UPDATE_USER_HEADER
-      - 动态块: 当前 self + 刚更新好的 memory + 本轮对话 + 时间戳 + chat_audit
-
-    与 memory update 的差异 (按你定的规则):
-      ① **加载当前的 Crystal_self.md** 作为基础
-      ② **额外加载更新过的 Crystal_memory.md** 作为外部参照
-      ③ 不向 update memory 的 prompt 中加载 self (那边始终不传 self)
-
-    【v7 删除】原 ask_track / load_track 参数已移除 —— 全局 track 子系统废弃,
-    改由 state["paper_ask_history"] / state["paper_load_history"] 在
-    compose_messages_node 阶段直接喂给 LLM messages, 这里是 update prompt
-    (独立 LLM 调用), 不再注入历史对话。
-
-    【v8 新增】chat_audit: 近期对话感知块 (来自 build_chat_audit_block),
-    非空时拼到 timestamp_section 之后, 让 LLM 看到 "近 N 条对话里的用户行为 / 称呼偏好"
-    再决定自我更新。
-    """
-    timestamp_section = ""
-    if current_timestamp:
-        timestamp_section = (
-            f"\n【本次更新时刻】{current_timestamp}（北京时间）。\n"
-            "请将本次更新时刻按 [更新时间: YYYY-MM-DD HH:MM] 规范追加到被修改或新增的条目末尾。\n"
-        )
-
-    chat_audit_section = ""
-    if chat_audit:
-        chat_audit_section = (
-            "\n【近期对话感知 (来自 crystal_chat_ai.json 近 "
-            f"{CHAT_AUDIT_LIMIT} 条)】\n"
-            "(用以感知用户在近期对话里的称呼、互动仪式、潜在新偏好/新习惯)\n"
-            f"{chat_audit}\n"
-        )
-
-    self_block = (
-        "【当前 Crystal_self.md 内容】\n"
-        "(如果是空字符串, 表示这是首次记录)\n"
-        + (current_self_md if current_self_md else "(空)\n")
-    )
-
-    memory_block = (
-        "【刚更新好的 Crystal_memory.md (作为外部参照, 帮助 Crystal 校准自我定位)】\n"
-        "(这一段不是让 self 变成 memory 的内容, 而是供 LLM 看到「我对用户已经形成了哪些认知」"
-        "再决定 Crystal 自己的状态如何适配)\n"
-        + (updated_memory_md if updated_memory_md else "(空)\n")
-    )
-
-    this_turn_block = (
-        "【本次用户和你核心的对话内容】\n"
-        f"用户: {user_msg}\n"
-        f"Crystal: {assistant_msg}\n"
-    )
-
-    return (
-        SELF_UPDATE_USER_HEADER()
-        + "\n\n"
-        + self_block
-        + "\n\n"
-        + memory_block
-        + this_turn_block
-        + timestamp_section
-        + chat_audit_section
-    )
-
-
-def buildMemoryUpdateUserPrompt(
-    current_memory_md: str,
-    user_msg: str,
-    assistant_msg: str,
-    current_timestamp: str = "",
-    chat_audit: str = "",
-) -> str:
-    """
-    构造 update_crystal_memory 的 user prompt:
-      - 静态头部: MEMORY_UPDATE_USER_HEADER (含时间戳规则 + 输出指令)
-      - 动态块: 当前笔记 + 本轮对话 + 更新时间戳 + chat_audit
-
-    【v7 删除】原 ask_track / load_track 参数已移除 —— 全局 track 子系统废弃,
-    改由 state["paper_ask_history"] / state["paper_load_history"] 在
-    compose_messages_node 阶段直接喂给 LLM messages, 这里是 update prompt
-    (独立 LLM 调用), 不再注入历史对话。
-
-    【v8 新增】chat_audit: 近期对话感知块 (来自 build_chat_audit_block),
-    非空时拼到 timestamp_section 之后, 让 LLM 看到 "近 N 条对话里的用户行为 / 新表达"
-    再决定 memory 是否补充新条目。
-    """
-
-    timestamp_section = ""
-    if current_timestamp:
-        timestamp_section = (
-            f"\n【本次更新时刻】{current_timestamp}（北京时间）。\n"
-            "请将本次更新时刻按上方时间戳规范追加到被修改或新增的条目末尾。\n"
-        )
-
-    chat_audit_section = ""
-    if chat_audit:
-        chat_audit_section = (
-            "\n【近期对话感知 (来自 crystal_chat_ai.json 近 "
-            f"{CHAT_AUDIT_LIMIT} 条)】\n"
-            "(用以感知用户在近期对话里的新表达、新偏好、新忌讳, "
-            "可作为补充上下文判断是否需要新增/合并 memory 条目)\n"
-            f"{chat_audit}\n"
-        )
-
-    memory_block = (
-        "【当前 Crystal_memory.md 内容】\n"
-        "(如果是空字符串, 表示这是首次记录)\n"
-        + (current_memory_md if current_memory_md else "(空)\n")
-    )
-
-    this_turn_block = (
-        "【本次用户和你核心的对话内容】\n"
-        f"用户: {user_msg}\n"
-        f"Crystal: {assistant_msg}\n"
-    )
-
-    return (
-        MEMORY_UPDATE_USER_HEADER()
-        + "\n\n"
-        + memory_block
-        + this_turn_block
-        + timestamp_section
-        + chat_audit_section
-    )
-
-
-# ═══════════════════════════════════════════════════════════════════════
 # Crystal_memory + Crystal_self 一次性合并更新 (2026-10-09)
 # ═══════════════════════════════════════════════════════════════════════
-# 与 buildMemoryUpdateUserPrompt / buildSelfUpdateUserPrompt 共享 timestamp
-# / chat_audit 块格式; 但**两份 md 全文同时注入**, 强制 LLM 看到双方内容,
+# 两份 md 全文同时注入, 强制 LLM 看到双方内容,
 # 在生成 {updated_memory, updated_self} 时主动避免重复。
 
 def buildMemoryAndSelfUpdateUserPrompt(
@@ -282,6 +108,83 @@ def buildMemoryAndSelfUpdateUserPrompt(
         timestamp_section
         + chat_audit_section
         + this_turn_block
+        + memory_block
+        + self_block
+        + task_block
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Crystal_memory + Crystal_self 一次性合并 COMPRESS (2026-10-11 引入)
+# ═══════════════════════════════════════════════════════════════════════
+# 与 buildMemoryAndSelfUpdateUserPrompt 对称, 但任务目标不同:
+#   update: "追加本轮新事实"
+#   compress: "按时间距离重排整份 md, 旧内容进 Hippocampus / 简化措辞"
+# 关键差异:
+#   · 不注入本轮对话 (压缩是离线任务, 与本轮对话无关)
+#   · 不注入 chat_audit (同理, 压缩是历史重排, 不需要近期 audit)
+#   · 显式告诉 LLM 当前 L1/L2 阈值 (24h / 72h), 方便它分档
+#   · 输出 JSON 字段名: compressed_memory / compressed_self
+#                    (与 update 的 updated_memory / updated_self 区分,
+#                     _safe_parse_update_json 通用解析两个 key 都能取)
+
+def buildMemoryAndSelfCompressUserPrompt(
+    current_memory_md: str,
+    current_self_md: str,
+    current_timestamp: str = "",
+    l1_hours: int = 24,
+    l2_hours: int = 72,
+) -> str:
+    """
+    构造「合并 compress」user prompt。
+
+    注入顺序 (按 system prompt 的工作流):
+      1) 时间戳 (本轮时刻) — LLM 用来算"距今多久"
+      2) 档位阈值 (L1 / L2 小时数) — LLM 用来分档
+      3) 当前 Crystal_memory.md 全文
+      4) 当前 Crystal_self.md 全文
+      5) 任务指令: 输出 JSON
+    """
+    timestamp_section = ""
+    if current_timestamp:
+        timestamp_section = (
+            f"\n【本次压缩时刻】{current_timestamp}（北京时间）。\n"
+            "请以此为基准, 扫描下方两份 md 中每条 Perception 条目文本前的\n"
+            "「YYYY年MM月DD日 HH:MM」时间, 按距此时刻的时长决定档位。\n"
+        )
+
+    threshold_section = (
+        f"\n【分档阈值 (来自 ai_config.COMPRESS_L*_HOURS)】\n"
+        f"  - 第一档 (< {l1_hours}h): 日记体, 不动\n"
+        f"  - 第二档 ({l1_hours}~{l2_hours}h): 简化措辞 + 合并相似条目, 仍按时间\n"
+        f"  - 第三档 (> {l2_hours}h): 迁入 ## Hippocampus, 按主题分类, 无序列表\n"
+    )
+
+    memory_block = (
+        "【当前 Crystal_memory.md 全文 (memory — 关于「他」的认知)】\n"
+        "(如果是空字符串, 表示这是首次记录, 无需压缩, 直接复制空字符串或写占位说明)\n"
+        + (current_memory_md if current_memory_md else "(空)\n")
+    )
+
+    self_block = (
+        "【当前 Crystal_self.md 全文 (self — 关于「我」的认知)】\n"
+        "(如果是空字符串, 表示这是首次记录, 无需压缩, 直接复制空字符串或写占位说明)\n"
+        + (current_self_md if current_self_md else "(空)\n")
+    )
+
+    task_block = (
+        "【任务指令】\n"
+        "请严格按 system prompt 定义的「时间分档 + Hippocampus 规范」,\n"
+        "在一次响应里同时输出 compressed_memory 和 compressed_self。\n"
+        "已迁入 Hippocampus 的旧条目必须从日记区**删除** (避免重复)。\n"
+        "输出格式必须是合法 JSON 对象, 仅含两个字段:\n"
+        '  {"compressed_memory": "<完整 Markdown 全文>", '
+        '"compressed_self": "<完整 Markdown 全文>"}\n'
+    )
+
+    return (
+        timestamp_section
+        + threshold_section
         + memory_block
         + self_block
         + task_block
@@ -449,6 +352,15 @@ def compose_chat_messages(
               "它同样不代表你认同其中每一条 —— 若某条与当下的真实感受冲突, "
               "以当下的感受为准。)"
         )
+    # emotion 注入位置说明 (2026-10-15 微调):
+    #   · 之前拼在 system 末尾 — LLM 对长 system 末尾注意力衰减, 容易把情绪
+    #     当成「本轮附带信息」淡化掉。
+    #   · 改为紧跟 agent_self 之后 — agent_self 是「Crystal 对自己」, emotion
+    #     同样是「Crystal 自己的状态」, 同源同质, 放一起语义连贯; 又不抢 chat_audit
+    #     这种「近期对话」段的位置 (chat_audit 涉及具体事件, 离 user query 越近越好)。
+    #   · 与 ai_active._build_split_system_prompt 的 emotion 位置保持一致 (也在 self 之后)。
+    if emotion_context:
+        system_content += "\n\n" + emotion_context
     # agent_explore 当前未消费 —— Crystal_explore.md 注入逻辑将在
     # 后续 ai_active 重写 explore 处理时一并重建, 这里保留入参占位。
 
@@ -459,8 +371,6 @@ def compose_chat_messages(
             "\n\n【近期对话内容感知, 用于参考、摘录、查询、区分角色、计算时间等】\n"
             + chat_audit
         )
-    if emotion_context:
-        system_content += "\n\n" + emotion_context
 
     messages: list[dict] = [
         {"role": "system", "content": system_content},

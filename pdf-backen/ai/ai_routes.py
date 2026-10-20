@@ -69,17 +69,13 @@ async def ai_config_get() -> AiConfigResp:
 
 @router.get("/emotion")
 async def ai_emotion() -> dict:
-    """返回当前情绪向量, 供前端 HomeView 轮询拉取。"""
+    """返回当前情绪状态 (词池范式), 供前端 HomeView 轮询拉取。"""
     emo = _load_emotion()
     debug(
         f"[/ai/emotion] hit → "
-        f"valence={emo.get('valence'):+.4f} "
-        f"arousal={emo.get('arousal'):+.4f} "
-        f"novelty={emo.get('novelty'):+.4f} "
-        f"clarity={emo.get('clarity'):+.4f} "
-        f"dt={emo.get('last_update_dt')!r} "
-        f"v={emo.get('version')} "
-        f"|max|={max(abs(emo.get(axis, 0.0)) for axis in ('valence','arousal','novelty','clarity')):.4f}"
+        f"label={emo.get('label')!r}  intensity={emo.get('intensity'):+.4f}  "
+        f"v={emo.get('v'):+.4f}  a={emo.get('a'):+.4f}  "
+        f"dt={emo.get('last_update_dt')!r}  v={emo.get('version')}"
     )
     return emo
 
